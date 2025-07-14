@@ -1,6 +1,7 @@
 package com.nutri_sci.model;
 
 import java.util.Date;
+import java.util.Map;
 
 public class Meal {
     private int mealId;
@@ -8,8 +9,9 @@ public class Meal {
     private String mealType;
     private String ingredients;
     private double estimatedCalories;
+    private Map<String, Double> nutrientBreakdown;
     private boolean isSwapped = false;
-    private Integer originalMealId = null; // Use Integer to allow for null
+    private Integer originalMealId = null;
 
     // Getters and Setters
     public int getMealId() { return mealId; }
@@ -22,6 +24,8 @@ public class Meal {
     public void setIngredients(String ingredients) { this.ingredients = ingredients; }
     public double getEstimatedCalories() { return estimatedCalories; }
     public void setEstimatedCalories(double estimatedCalories) { this.estimatedCalories = estimatedCalories; }
+    public Map<String, Double> getNutrientBreakdown() { return nutrientBreakdown; }
+    public void setNutrientBreakdown(Map<String, Double> nutrientBreakdown) { this.nutrientBreakdown = nutrientBreakdown; }
     public boolean isSwapped() { return isSwapped; }
     public void setSwapped(boolean swapped) { isSwapped = swapped; }
     public Integer getOriginalMealId() { return originalMealId; }

@@ -61,7 +61,7 @@ public class MealLoggingUI extends JFrame {
                     ingredientsArea.getText()
             );
             if (success) {
-                this.dispose(); // Close window on successful log
+                this.dispose();
             }
         });
     }

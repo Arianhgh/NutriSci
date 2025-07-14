@@ -4,6 +4,7 @@ import com.nutri_sci.model.Meal;
 import com.nutri_sci.model.UserProfile;
 
 import java.sql.*;
+import java.util.Date;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -41,11 +42,7 @@ public class DBManager {
     private DBManager() {
         try {
             connection = DriverManager.getConnection(DB_URL, USER, PASS);
-            System.out.println("DBManager connected to the database successfully.");
-
-            // Ensures necessary tables exist on startup.
             createApplicationTables();
-
         } catch (SQLException e) {
             e.printStackTrace();
             throw new RuntimeException("Failed to connect to the database.");
@@ -56,14 +53,14 @@ public class DBManager {
      * Creates application-specific tables if they don't already exist.
      */
     private void createApplicationTables() {
-        // `IF NOT EXISTS` prevents errors if the tables are already present.
         String createUserProfileTable = "CREATE TABLE IF NOT EXISTS USER_PROFILE ("
                 + "UserID INT PRIMARY KEY AUTO_INCREMENT,"
                 + "ProfileName VARCHAR(255) NOT NULL UNIQUE,"
                 + "Sex VARCHAR(50),"
                 + "DateOfBirth DATE,"
                 + "HeightCM DOUBLE,"
-                + "WeightKG DOUBLE"
+                + "WeightKG DOUBLE,"
+                + "MeasurementUnit VARCHAR(50)"
                 + ");";
 
         String createMealLogTable = "CREATE TABLE IF NOT EXISTS MEAL_LOG ("
@@ -75,17 +72,13 @@ public class DBManager {
                 + "EstimatedCalories DOUBLE,"
                 + "IsSwapped BOOLEAN DEFAULT FALSE,"
                 + "OriginalMealID INT NULL,"
-                // Ensures data integrity by cascading deletes from USER_PROFILE.
                 + "FOREIGN KEY (UserID) REFERENCES USER_PROFILE(UserID) ON DELETE CASCADE,"
-                // A swapped meal can be deleted without affecting its replacement.
                 + "FOREIGN KEY (OriginalMealID) REFERENCES MEAL_LOG(MealID) ON DELETE SET NULL"
                 + ");";
 
         try (Statement stmt = connection.createStatement()) {
-            System.out.println("Verifying application tables...");
             stmt.executeUpdate(createUserProfileTable);
             stmt.executeUpdate(createMealLogTable);
-            System.out.println("Application tables verified successfully.");
         } catch (SQLException e) {
             e.printStackTrace();
             throw new RuntimeException("Failed to create or verify application tables.", e);
@@ -94,7 +87,6 @@ public class DBManager {
 
     /**
      * Provides global access to the single DBManager instance, creating it if necessary.
-     * `synchronized` makes this method thread-safe.
      */
     public static synchronized DBManager getInstance() {
         if (instance == null) {
@@ -103,6 +95,22 @@ public class DBManager {
         return instance;
     }
 
+    public Date getMostRecentMealDate(int userId) {
+        String sql = "SELECT MAX(MealDate) AS latestDate FROM MEAL_LOG WHERE UserID = ?";
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setInt(1, userId);
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next()) {
+                Timestamp ts = rs.getTimestamp("latestDate");
+                if (ts != null) {
+                    return new Date(ts.getTime());
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return null; // Return null if no meals are found
+    }
 
     public List<String> getFoodsByNutrientRank(String nutrientName, String rank) {
         int nutrientId;
@@ -120,13 +128,12 @@ public class DBManager {
         }
 
         List<String> foods = new ArrayList<>();
-        // Dynamically set the sort order based on user selection.
         String sortOrder = rank.equalsIgnoreCase("HIGH") ? "DESC" : "ASC";
         String sql = "SELECT FN.FoodDescription FROM NUTRIENT_AMOUNT NA " +
                 "JOIN FOOD_NAME FN ON NA.FoodID = FN.FoodID " +
                 "WHERE NA.NutrientID = ? " +
                 "ORDER BY NA.NutrientValue " + sortOrder + " " +
-                "LIMIT 100"; // Limit results for performance.
+                "LIMIT 300";
 
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
             pstmt.setInt(1, nutrientId);
@@ -141,19 +148,19 @@ public class DBManager {
     }
 
     public UserProfile saveProfile(UserProfile profile) {
-        String sql = "INSERT INTO USER_PROFILE (ProfileName, Sex, DateOfBirth, HeightCM, WeightKG) VALUES (?, ?, ?, ?, ?)";
-        // `RETURN_GENERATED_KEYS` is used to retrieve the auto-incremented UserID after insert.
+        String sql = "INSERT INTO USER_PROFILE (ProfileName, Sex, DateOfBirth, HeightCM, WeightKG, MeasurementUnit) VALUES (?, ?, ?, ?, ?, ?)";
         try (PreparedStatement pstmt = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             pstmt.setString(1, profile.getName());
             pstmt.setString(2, profile.getSex());
             pstmt.setDate(3, new java.sql.Date(profile.getDateOfBirth().getTime()));
             pstmt.setDouble(4, profile.getHeight());
             pstmt.setDouble(5, profile.getWeight());
+            pstmt.setString(6, profile.getMeasurementUnit());
             pstmt.executeUpdate();
 
             ResultSet generatedKeys = pstmt.getGeneratedKeys();
             if (generatedKeys.next()) {
-                profile.setId(generatedKeys.getInt(1)); // Set the new ID on the profile object.
+                profile.setId(generatedKeys.getInt(1));
             }
             return profile;
         } catch (SQLException e) {
@@ -175,6 +182,7 @@ public class DBManager {
                 profile.setDateOfBirth(rs.getDate("DateOfBirth"));
                 profile.setHeight(rs.getDouble("HeightCM"));
                 profile.setWeight(rs.getDouble("WeightKG"));
+                profile.setMeasurementUnit(rs.getString("MeasurementUnit"));
                 return profile;
             }
         } catch (SQLException e) {
@@ -208,7 +216,6 @@ public class DBManager {
             if (meal.getOriginalMealId() != null) {
                 pstmt.setInt(7, meal.getOriginalMealId());
             } else {
-                // Explicitly set the nullable integer foreign key to NULL.
                 pstmt.setNull(7, java.sql.Types.INTEGER);
             }
             return pstmt.executeUpdate() > 0;
@@ -219,11 +226,42 @@ public class DBManager {
     }
 
     public List<Meal> getMealsForUser(int userId) {
+        return getMealsForUser(userId, null, null, false);
+    }
+
+    public List<Meal> getMealsForUser(int userId, Date startDate, Date endDate) {
+        return getMealsForUser(userId, startDate, endDate, false);
+    }
+
+    public List<Meal> getMealsForUser(int userId, Date startDate, Date endDate, boolean includeReplacedMeals) {
         List<Meal> meals = new ArrayList<>();
-        // This subquery ensures that we don't show meals that have been swapped out for another.
-        String sql = "SELECT * FROM MEAL_LOG WHERE UserID = ? AND MealID NOT IN (SELECT OriginalMealID FROM MEAL_LOG WHERE OriginalMealID IS NOT NULL) ORDER BY MealDate DESC";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setInt(1, userId);
+        StringBuilder sql = new StringBuilder("SELECT * FROM MEAL_LOG WHERE UserID = ?");
+
+        if (!includeReplacedMeals) {
+            sql.append(" AND MealID NOT IN (SELECT OriginalMealID FROM MEAL_LOG WHERE OriginalMealID IS NOT NULL AND UserID = ?)");
+        }
+
+        if (startDate != null) {
+            sql.append(" AND MealDate >= ?");
+        }
+        if (endDate != null) {
+            sql.append(" AND MealDate <= ?");
+        }
+        sql.append(" ORDER BY MealDate DESC");
+
+        try (PreparedStatement pstmt = connection.prepareStatement(sql.toString())) {
+            int paramIndex = 1;
+            pstmt.setInt(paramIndex++, userId);
+            if (!includeReplacedMeals) {
+                pstmt.setInt(paramIndex++, userId);
+            }
+            if (startDate != null) {
+                pstmt.setTimestamp(paramIndex++, new Timestamp(startDate.getTime()));
+            }
+            if (endDate != null) {
+                pstmt.setTimestamp(paramIndex++, new Timestamp(endDate.getTime()));
+            }
+
             ResultSet rs = pstmt.executeQuery();
             while (rs.next()) {
                 Meal meal = new Meal();
@@ -233,7 +271,6 @@ public class DBManager {
                 meal.setIngredients(rs.getString("Ingredients"));
                 meal.setEstimatedCalories(rs.getDouble("EstimatedCalories"));
                 meal.setSwapped(rs.getBoolean("IsSwapped"));
-                // `getObject` is used to safely retrieve a nullable integer column.
                 meal.setOriginalMealId((Integer) rs.getObject("OriginalMealID"));
                 meals.add(meal);
             }
@@ -243,8 +280,36 @@ public class DBManager {
         return meals;
     }
 
+
+    /**
+     * Retrieves a single meal by its unique ID.
+     * @param mealId The ID of the meal to retrieve.
+     * @return The Meal object, or null if not found.
+     */
+    public Meal getMealById(int mealId) {
+        String sql = "SELECT * FROM MEAL_LOG WHERE MealID = ?";
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setInt(1, mealId);
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next()) {
+                Meal meal = new Meal();
+                meal.setMealId(rs.getInt("MealID"));
+                meal.setDate(rs.getTimestamp("MealDate"));
+                meal.setMealType(rs.getString("MealType"));
+                meal.setIngredients(rs.getString("Ingredients"));
+                meal.setEstimatedCalories(rs.getDouble("EstimatedCalories"));
+                meal.setSwapped(rs.getBoolean("IsSwapped"));
+                meal.setOriginalMealId((Integer) rs.getObject("OriginalMealID"));
+                return meal;
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+
     public boolean hasUserLoggedMealTypeOnDate(int userId, String mealType, java.util.Date date) {
-        // `DATE(MealDate)` function ignores the time part of the DATETIME column for comparison.
         String sql = "SELECT COUNT(*) FROM MEAL_LOG WHERE UserID = ? AND MealType = ? AND DATE(MealDate) = ?";
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
             pstmt.setInt(1, userId);
@@ -276,42 +341,37 @@ public class DBManager {
         return 0.0;
     }
 
-    /**
-     * Attempts to find the best matching food item in the database based on a description.
-     */
     public int findFoodId(String description) {
         String sanitizedDescription = description.trim().replace(",", "");
         String[] words = sanitizedDescription.split("\\s+");
         if (words.length == 0) return -1;
 
-        // This SQL query is complex, using REGEXP to match all words in the description.
+        // Use at most the first 4 words to avoid overly strict searches.
+        int wordsToUse = Math.min(words.length, 4);
+
         StringBuilder sql = new StringBuilder("SELECT FoodID, FoodDescription FROM FOOD_NAME WHERE ");
-        for (int i = 0; i < words.length; i++) {
+        for (int i = 0; i < wordsToUse; i++) {
             sql.append("FoodDescription REGEXP ?");
-            if (i < words.length - 1) {
+            if (i < wordsToUse - 1) {
                 sql.append(" AND ");
             }
         }
-        // The ORDER BY clause prioritizes more basic/raw forms of food and shorter descriptions.
         sql.append(" ORDER BY ");
         sql.append("CASE ");
-        sql.append("    WHEN FoodDescription LIKE '%raw%' THEN 0 "); // Highest priority
-        sql.append("    WHEN FoodDescription NOT LIKE '%cooked%' AND FoodDescription NOT LIKE '%canned%' AND FoodDescription NOT LIKE '%frozen%' AND FoodDescription NOT LIKE '%sauce%' AND FoodDescription NOT LIKE '%soup%' AND FoodDescription NOT LIKE '%dish%' THEN 1 "); // Second priority
-        sql.append("    ELSE 2 "); // Lowest priority
+        sql.append("    WHEN FoodDescription LIKE '%raw%' THEN 0 ");
+        sql.append("    WHEN FoodDescription NOT LIKE '%cooked%' AND FoodDescription NOT LIKE '%canned%' AND FoodDescription NOT LIKE '%frozen%' AND FoodDescription NOT LIKE '%sauce%' AND FoodDescription NOT LIKE '%soup%' AND FoodDescription NOT LIKE '%dish%' THEN 1 ");
+        sql.append("    ELSE 2 ");
         sql.append("END ASC, ");
-        sql.append("LENGTH(FoodDescription) ASC "); // Prefer shorter, more specific names
+        sql.append("LENGTH(FoodDescription) ASC ");
         sql.append("LIMIT 1");
 
         try (PreparedStatement pstmt = connection.prepareStatement(sql.toString())) {
-            for (int i = 0; i < words.length; i++) {
-                // Escape any special regex characters in the user's input word.
+            for (int i = 0; i < wordsToUse; i++) {
                 String sanitizedWord = words[i].replaceAll("([\\\\\\.\\[\\]\\{\\}\\(\\)\\*\\+\\?\\^\\$\\|])", "\\\\$1");
-                // `\b` creates a word boundary to avoid matching substrings (e.g., 'app' in 'apple').
                 pstmt.setString(i + 1, "\\b" + sanitizedWord + "\\b");
             }
             ResultSet rs = pstmt.executeQuery();
             if (rs.next()) {
-                System.out.println("INFO: For ingredient '" + description + "', found DB entry: '" + rs.getString("FoodDescription") + "'");
                 return rs.getInt("FoodID");
             }
         } catch (SQLException e) {
@@ -322,12 +382,11 @@ public class DBManager {
     }
 
     public String getFoodGroup(String fullIngredientLine) {
-        // Use the regex pattern to extract the food description from the ingredient line.
         Matcher matcher = ingredientPattern.matcher(fullIngredientLine.trim());
         if (!matcher.matches()) {
             return null;
         }
-        String description = matcher.group(2).trim(); // Group 2 is the food description part.
+        String description = matcher.group(2).trim();
         int foodId = findFoodId(description);
 
         if (foodId == -1) return null;
@@ -372,10 +431,34 @@ public class DBManager {
             while (rs.next()) {
                 int nutrientId = rs.getInt("NutrientID");
                 double value = rs.getDouble("NutrientValue");
-                // Map the nutrient IDs back to human-readable names.
                 if (nutrientId == CALORIE_NUTRIENT_ID) nutrients.put("Calories", value);
                 else if (nutrientId == PROTEIN_NUTRIENT_ID) nutrients.put("Protein", value);
                 else if (nutrientId == FIBER_NUTRIENT_ID) nutrients.put("Fiber", value);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return nutrients;
+    }
+
+    public Map<String, Double> getComprehensiveNutrientProfile(String foodDescription) {
+        Map<String, Double> nutrients = new HashMap<>();
+        int foodId = findFoodId(foodDescription);
+        if (foodId == -1) return nutrients;
+
+        String sql = "SELECT na.NutrientValue, nn.NutrientName, nn.NutrientUnit " +
+                "FROM NUTRIENT_AMOUNT na " +
+                "JOIN NUTRIENT_NAME nn ON na.NutrientID = nn.NutrientID " +
+                "WHERE na.FoodID = ?";
+
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setInt(1, foodId);
+            ResultSet rs = pstmt.executeQuery();
+            while (rs.next()) {
+                String name = rs.getString("NutrientName");
+                double value = rs.getDouble("NutrientValue");
+                String unit = rs.getString("NutrientUnit");
+                nutrients.put(name + " (" + unit + ")", value);
             }
         } catch (SQLException e) {
             e.printStackTrace();

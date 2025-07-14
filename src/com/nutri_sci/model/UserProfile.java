@@ -9,6 +9,7 @@ public class UserProfile {
     private Date dateOfBirth;
     private double height;
     private double weight;
+    private String measurementUnit; // "Metric" or "Imperial"
 
     public int getId() { return id; }
     public void setId(int id) { this.id = id; }
@@ -22,4 +23,6 @@ public class UserProfile {
     public void setHeight(double height) { this.height = height; }
     public double getWeight() { return weight; }
     public void setWeight(double weight) { this.weight = weight; }
+    public String getMeasurementUnit() { return measurementUnit; }
+    public void setMeasurementUnit(String measurementUnit) { this.measurementUnit = measurementUnit; }
 }

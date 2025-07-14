@@ -8,6 +8,7 @@ import com.nutri_sci.service.NutrientCalculator;
 
 import javax.swing.*;
 import java.util.Date;
+import java.util.Map;
 
 /**
  * Handles business logic related to meal logging and interacts with the database.
@@ -49,14 +50,17 @@ public class MealController {
         meal.setDate(date);
         meal.setMealType(mealType);
         meal.setIngredients(ingredients);
+
         // Calculate nutrient estimates before saving.
-        meal.setEstimatedCalories(nutrientCalculator.calculateCaloriesForMeal(ingredients));
+        Map<String, Double> nutrients = nutrientCalculator.calculateNutrientsForMeal(ingredients);
+        meal.setEstimatedCalories(nutrients.getOrDefault("Calories", 0.0));
+        meal.setNutrientBreakdown(nutrients);
 
         boolean success = dbManager.saveMeal(user.getId(), meal);
         if (success) {
             JOptionPane.showMessageDialog(null, "Meal logged successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
-            // Using Observer pattern to notify other parts of the application (e.g., UI) of the data change.
-            MealDataNotifier.getInstance().notifyObserversOfChange();
+            // Using observer pattern to notify other parts of the application (e.g., UI) of the data change.
+            MealDataNotifier.getInstance().notifyMealDataChanged();
             return true;
         } else {
             JOptionPane.showMessageDialog(null, "Failed to log meal.", "Error", JOptionPane.ERROR_MESSAGE);
