@@ -1,5 +1,6 @@
 package com.nutri_sci.database;
 
+import com.nutri_sci.model.FoodItem;
 import com.nutri_sci.model.Meal;
 import com.nutri_sci.model.UserProfile;
 
@@ -341,12 +342,20 @@ public class DBManager {
         return 0.0;
     }
 
-    public int findFoodId(String description) {
+    /**
+     * Searches the database for food items matching a description and returns a ranked list.
+     * This method REPLACES the old findFoodId method.
+     *
+     * @param description The user-entered food description (e.g., "brown rice").
+     * @param limit The maximum number of suggestions to return.
+     * @return A list of FoodItem objects representing the best matches.
+     */
+    public List<FoodItem> findFoodSuggestions(String description, int limit) {
+        List<FoodItem> suggestions = new ArrayList<>();
         String sanitizedDescription = description.trim().replace(",", "");
         String[] words = sanitizedDescription.split("\\s+");
-        if (words.length == 0) return -1;
+        if (words.length == 0) return suggestions;
 
-        // Use at most the first 4 words to avoid overly strict searches.
         int wordsToUse = Math.min(words.length, 4);
 
         StringBuilder sql = new StringBuilder("SELECT FoodID, FoodDescription FROM FOOD_NAME WHERE ");
@@ -356,20 +365,43 @@ public class DBManager {
                 sql.append(" AND ");
             }
         }
+        // This ordering logic is preserved to ensure the best matches appear first.
         sql.append(" ORDER BY ");
         sql.append("CASE ");
-        sql.append("    WHEN FoodDescription LIKE '%raw%' THEN 0 ");
-        sql.append("    WHEN FoodDescription NOT LIKE '%cooked%' AND FoodDescription NOT LIKE '%canned%' AND FoodDescription NOT LIKE '%frozen%' AND FoodDescription NOT LIKE '%sauce%' AND FoodDescription NOT LIKE '%soup%' AND FoodDescription NOT LIKE '%dish%' THEN 1 ");
-        sql.append("    ELSE 2 ");
+        sql.append("    WHEN FoodDescription LIKE ? THEN 0 "); // Prioritize exact matches
+        sql.append("    WHEN FoodDescription LIKE '%raw%' THEN 1 ");
+        sql.append("    WHEN FoodDescription NOT LIKE '%cooked%' AND FoodDescription NOT LIKE '%canned%' AND FoodDescription NOT LIKE '%frozen%' AND FoodDescription NOT LIKE '%sauce%' AND FoodDescription NOT LIKE '%soup%' AND FoodDescription NOT LIKE '%dish%' THEN 2 ");
+        sql.append("    ELSE 3 ");
         sql.append("END ASC, ");
         sql.append("LENGTH(FoodDescription) ASC ");
-        sql.append("LIMIT 1");
+        sql.append("LIMIT ?");
 
         try (PreparedStatement pstmt = connection.prepareStatement(sql.toString())) {
+            int paramIndex = 1;
             for (int i = 0; i < wordsToUse; i++) {
                 String sanitizedWord = words[i].replaceAll("([\\\\\\.\\[\\]\\{\\}\\(\\)\\*\\+\\?\\^\\$\\|])", "\\\\$1");
-                pstmt.setString(i + 1, "\\b" + sanitizedWord + "\\b");
+                pstmt.setString(paramIndex++, "\\b" + sanitizedWord + "\\b");
             }
+            pstmt.setString(paramIndex++, description); // For the exact match case
+            pstmt.setInt(paramIndex, limit);
+
+            ResultSet rs = pstmt.executeQuery();
+            while (rs.next()) {
+                suggestions.add(new FoodItem(
+                        rs.getInt("FoodID"),
+                        rs.getString("FoodDescription")
+                ));
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return suggestions;
+    }
+
+    private int findFoodIdByExactDescription(String description) {
+        String sql = "SELECT FoodID FROM FOOD_NAME WHERE FoodDescription = ? LIMIT 1";
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, description);
             ResultSet rs = pstmt.executeQuery();
             if (rs.next()) {
                 return rs.getInt("FoodID");
@@ -377,7 +409,6 @@ public class DBManager {
         } catch (SQLException e) {
             e.printStackTrace();
         }
-        System.err.println("WARN: No matching food found in the database for: '" + description + "'");
         return -1;
     }
 
@@ -387,7 +418,7 @@ public class DBManager {
             return null;
         }
         String description = matcher.group(2).trim();
-        int foodId = findFoodId(description);
+        int foodId = findFoodIdByExactDescription(description);
 
         if (foodId == -1) return null;
 
@@ -420,10 +451,13 @@ public class DBManager {
     }
 
     public Map<String, Double> getNutrientProfile(String foodDescription) {
-        Map<String, Double> nutrients = new HashMap<>();
-        int foodId = findFoodId(foodDescription);
-        if (foodId == -1) return nutrients;
+        int foodId = findFoodIdByExactDescription(foodDescription);
+        if (foodId == -1) return new HashMap<>();
+        return getNutrientProfileById(foodId);
+    }
 
+    private Map<String, Double> getNutrientProfileById(int foodId) {
+        Map<String, Double> nutrients = new HashMap<>();
         String sql = "SELECT NutrientID, NutrientValue FROM NUTRIENT_AMOUNT WHERE FoodID = ?";
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
             pstmt.setInt(1, foodId);
@@ -442,10 +476,10 @@ public class DBManager {
     }
 
     public Map<String, Double> getComprehensiveNutrientProfile(String foodDescription) {
-        Map<String, Double> nutrients = new HashMap<>();
-        int foodId = findFoodId(foodDescription);
-        if (foodId == -1) return nutrients;
+        int foodId = findFoodIdByExactDescription(foodDescription);
+        if (foodId == -1) return new HashMap<>();
 
+        Map<String, Double> nutrients = new HashMap<>();
         String sql = "SELECT na.NutrientValue, nn.NutrientName, nn.NutrientUnit " +
                 "FROM NUTRIENT_AMOUNT na " +
                 "JOIN NUTRIENT_NAME nn ON na.NutrientID = nn.NutrientID " +

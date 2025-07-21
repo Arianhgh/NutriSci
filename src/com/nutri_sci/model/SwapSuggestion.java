@@ -36,12 +36,14 @@ public class SwapSuggestion {
     @Override
     public String toString() {
         return String.format("<html><b>%s</b><br>" +
-                        "<font size='-2'>Calories: %+.2f kcal (%+.1f%%) | Protein: %+.2fg | Fiber: %+.2fg</font></html>",
+                        "<font size='-2'>Calories: %+.2f kcal (%+.1f%%) | Protein: %+.2fg (%+.1f%%) | Fiber: %+.2fg (%+.1f%%)</font></html>",
                 foodName,
                 nutrientChanges.getOrDefault("Calories", 0.0),
                 nutrientPercentChanges.getOrDefault("Calories", 0.0) * 100,
                 nutrientChanges.getOrDefault("Protein", 0.0),
-                nutrientChanges.getOrDefault("Fiber", 0.0)
+                nutrientPercentChanges.getOrDefault("Protein", 0.0) * 100,
+                nutrientChanges.getOrDefault("Fiber", 0.0),
+                nutrientPercentChanges.getOrDefault("Fiber", 0.0) * 100
         );
     }
 }

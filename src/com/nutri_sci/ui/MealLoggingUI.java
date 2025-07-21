@@ -58,13 +58,15 @@ public class MealLoggingUI extends JFrame {
                     userProfile,
                     (Date) dateSpinner.getValue(),
                     (String) mealTypeComboBox.getSelectedItem(),
-                    ingredientsArea.getText()
+                    ingredientsArea.getText(),
+                    this
             );
             if (success) {
                 this.dispose();
             }
         });
     }
+
     public static void main(String[] args) {
         // Create a sample UserProfile for testing.
         UserProfile testProfile = new UserProfile();

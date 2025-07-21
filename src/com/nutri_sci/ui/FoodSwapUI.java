@@ -1,6 +1,7 @@
 package com.nutri_sci.ui;
 
 import com.nutri_sci.controller.SwapController;
+import com.nutri_sci.model.Goal;
 import com.nutri_sci.model.Meal;
 import com.nutri_sci.model.SwapSuggestion;
 import com.nutri_sci.model.UserProfile;
@@ -10,6 +11,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 import java.awt.*;
+import java.util.ArrayList;
 import java.util.List;
 
 public class FoodSwapUI extends JFrame {
@@ -25,10 +27,17 @@ public class FoodSwapUI extends JFrame {
     private final JComboBox<String> goalTypeBox = new JComboBox<>(new String[]{"Decrease", "Increase"});
     private final JComboBox<String> goalIntensityBox = new JComboBox<>(new String[]{"by Percentage (%)", "by Absolute Amount (g/kcal)"});
     private final JTextField goalAmountField = new JTextField("10", 5);
-    private final JSlider toleranceSlider = new JSlider(0, 50, 15); // 0-50% tolerance, default 15%
+    private final JSlider toleranceSlider = new JSlider(0, 50, 15);
     private final JList<SwapSuggestion> suggestedSwapsList = new JList<>();
     private final JCheckBox sameGroupOnlyCheckbox = new JCheckBox("Only suggest from same food group");
     private final JCheckBox strictToleranceCheckbox = new JCheckBox("Strictly enforce nutrient tolerance");
+
+    // --- NEW: Components for the second goal ---
+    private final JCheckBox enableSecondGoalCheckbox = new JCheckBox("Add a Second Goal");
+    private final JComboBox<String> nutrientGoalBox2 = new JComboBox<>(new String[]{"Calories", "Protein", "Fiber"});
+    private final JComboBox<String> goalTypeBox2 = new JComboBox<>(new String[]{"Decrease", "Increase"});
+    private final JComboBox<String> goalIntensityBox2 = new JComboBox<>(new String[]{"by Percentage (%)", "by Absolute Amount (g/kcal)"});
+    private final JTextField goalAmountField2 = new JTextField("5", 5);
 
 
     public FoodSwapUI(UserProfile userProfile, Meal mealToSwap) {
@@ -38,7 +47,7 @@ public class FoodSwapUI extends JFrame {
         this.swapController = new SwapController();
 
         setTitle("Suggest Food Swaps");
-        setSize(700, 650); // Increased height for new components
+        setSize(700, 750); // Increased height for new components
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setLocationRelativeTo(null);
 
@@ -54,46 +63,57 @@ public class FoodSwapUI extends JFrame {
         selectionPanel.add(ingredientsToSwapBox);
 
         JPanel goalDefinitionPanel = new JPanel(new GridBagLayout());
-        goalDefinitionPanel.setBorder(new TitledBorder("Define Your Nutritional Goal"));
+        goalDefinitionPanel.setBorder(new TitledBorder("Define Your Nutritional Goal(s)"));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(5, 5, 5, 5);
         gbc.anchor = GridBagConstraints.WEST;
 
-        gbc.gridx = 0; gbc.gridy = 0; goalDefinitionPanel.add(new JLabel("My Goal is to:"), gbc);
+        // --- Row 0: Goal 1 ---
+        gbc.gridx = 0; gbc.gridy = 0; goalDefinitionPanel.add(new JLabel("Goal 1:"), gbc);
         gbc.gridx = 1; gbc.gridy = 0; goalDefinitionPanel.add(goalTypeBox, gbc);
         gbc.gridx = 2; gbc.gridy = 0; goalDefinitionPanel.add(nutrientGoalBox, gbc);
         gbc.gridx = 3; gbc.gridy = 0; goalDefinitionPanel.add(goalIntensityBox, gbc);
         gbc.gridx = 4; gbc.gridy = 0; goalDefinitionPanel.add(goalAmountField, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 1; goalDefinitionPanel.add(new JLabel("Keep other nutrients within:"), gbc);
-        gbc.gridx = 1; gbc.gridy = 1; gbc.gridwidth = 3;
+        // --- Row 1: Second Goal Checkbox ---
+        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 5;
+        goalDefinitionPanel.add(enableSecondGoalCheckbox, gbc);
+        enableSecondGoalCheckbox.addActionListener(e -> toggleSecondGoal());
+
+        // --- Row 2: Goal 2 (Initially hidden) ---
+        gbc.gridy = 2; gbc.gridwidth = 1;
+        gbc.gridx = 0; goalDefinitionPanel.add(new JLabel("Goal 2:"), gbc);
+        gbc.gridx = 1; goalDefinitionPanel.add(goalTypeBox2, gbc);
+        gbc.gridx = 2; goalDefinitionPanel.add(nutrientGoalBox2, gbc);
+        gbc.gridx = 3; goalDefinitionPanel.add(goalIntensityBox2, gbc);
+        gbc.gridx = 4; goalDefinitionPanel.add(goalAmountField2, gbc);
+
+        // --- Row 3: Tolerance Slider ---
+        gbc.gridy = 3;
+        gbc.gridx = 0; goalDefinitionPanel.add(new JLabel("Keep other nutrients within:"), gbc);
+        gbc.gridx = 1; gbc.gridwidth = 3;
         toleranceSlider.setMajorTickSpacing(10);
         toleranceSlider.setMinorTickSpacing(5);
         toleranceSlider.setPaintTicks(true);
         toleranceSlider.setPaintLabels(true);
         goalDefinitionPanel.add(toleranceSlider, gbc);
-        gbc.gridx = 4; gbc.gridy = 1; goalDefinitionPanel.add(new JLabel("%"), gbc);
+        gbc.gridx = 4; gbc.gridy = 3; goalDefinitionPanel.add(new JLabel("%"), gbc);
 
-        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 2; goalDefinitionPanel.add(sameGroupOnlyCheckbox, gbc);
-        gbc.gridx = 2; gbc.gridy = 2; gbc.gridwidth = 3; goalDefinitionPanel.add(strictToleranceCheckbox, gbc);
+        // --- Row 4: Checkboxes ---
+        gbc.gridy = 4; gbc.gridwidth = 2;
+        gbc.gridx = 0; goalDefinitionPanel.add(sameGroupOnlyCheckbox, gbc);
+        gbc.gridx = 2; gbc.gridwidth = 3; goalDefinitionPanel.add(strictToleranceCheckbox, gbc);
 
-
+        // --- Row 5: Find Button ---
+        gbc.gridy = 5;
         JButton findSwapsButton = new JButton("Find Swaps");
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 5; gbc.anchor = GridBagConstraints.CENTER;
+        gbc.gridx = 0; gbc.gridwidth = 5; gbc.anchor = GridBagConstraints.CENTER;
         gbc.insets = new Insets(15, 5, 5, 5); // Add top margin
         goalDefinitionPanel.add(findSwapsButton, gbc);
 
         JPanel suggestionsPanel = new JPanel(new BorderLayout());
         suggestionsPanel.setBorder(new TitledBorder("Suggested Swaps (Best matches on top)"));
         suggestedSwapsList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        suggestedSwapsList.setCellRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                label.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-                return label;
-            }
-        });
         suggestionsPanel.add(new JScrollPane(suggestedSwapsList), BorderLayout.CENTER);
 
         JPanel swapExecutionPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
@@ -112,32 +132,54 @@ public class FoodSwapUI extends JFrame {
 
         findSwapsButton.addActionListener(e -> findAndDisplaySwaps());
         performSwapButton.addActionListener(e -> finalizeSwap());
+
+        toggleSecondGoal(); // Set initial state
+    }
+
+    /**
+     * Toggles the visibility and enabled state of the second goal's components.
+     */
+    private void toggleSecondGoal() {
+        boolean enabled = enableSecondGoalCheckbox.isSelected();
+        nutrientGoalBox2.setEnabled(enabled);
+        goalTypeBox2.setEnabled(enabled);
+        goalIntensityBox2.setEnabled(enabled);
+        goalAmountField2.setEnabled(enabled);
     }
 
     private void findAndDisplaySwaps() {
         String itemToSwap = (String) ingredientsToSwapBox.getSelectedItem();
-        String nutrient = (String) nutrientGoalBox.getSelectedItem();
-        String goalType = (String) goalTypeBox.getSelectedItem();
-        boolean isRelative = ((String) goalIntensityBox.getSelectedItem()).contains("Percentage");
         double tolerance = toleranceSlider.getValue();
-        double goalAmount;
         boolean sameGroupOnly = sameGroupOnlyCheckbox.isSelected();
         boolean strictTolerance = strictToleranceCheckbox.isSelected();
 
+        List<Goal> goals = new ArrayList<>();
         try {
-            goalAmount = Double.parseDouble(goalAmountField.getText());
+            // Goal 1
+            goals.add(new Goal(
+                    (String) nutrientGoalBox.getSelectedItem(),
+                    (String) goalTypeBox.getSelectedItem(),
+                    Double.parseDouble(goalAmountField.getText()),
+                    ((String) goalIntensityBox.getSelectedItem()).contains("Percentage")
+            ));
+
+            // Goal 2 (if enabled)
+            if (enableSecondGoalCheckbox.isSelected()) {
+                goals.add(new Goal(
+                        (String) nutrientGoalBox2.getSelectedItem(),
+                        (String) goalTypeBox2.getSelectedItem(),
+                        Double.parseDouble(goalAmountField2.getText()),
+                        ((String) goalIntensityBox2.getSelectedItem()).contains("Percentage")
+                ));
+            }
         } catch (NumberFormatException ex) {
-            JOptionPane.showMessageDialog(this, "Please enter a valid number for the goal amount.", "Input Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Please enter valid numbers for the goal amounts.", "Input Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
-        if (itemToSwap == null) {
-            JOptionPane.showMessageDialog(this, "Please select an item to swap.", "Input Error", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
+        if (itemToSwap == null) return;
 
-
-        List<SwapSuggestion> suggestions = swapEngine.findSwaps(originalMeal, itemToSwap, nutrient, goalType, goalAmount, isRelative, tolerance, sameGroupOnly, strictTolerance);
+        List<SwapSuggestion> suggestions = swapEngine.findSwaps(originalMeal, itemToSwap, goals, tolerance, sameGroupOnly, strictTolerance);
 
         if (suggestions.isEmpty()) {
             DefaultListModel<SwapSuggestion> model = new DefaultListModel<>();
@@ -148,9 +190,7 @@ public class FoodSwapUI extends JFrame {
             suggestedSwapsList.setModel(model);
         } else {
             DefaultListModel<SwapSuggestion> model = new DefaultListModel<>();
-            for (SwapSuggestion suggestion : suggestions) {
-                model.addElement(suggestion);
-            }
+            suggestions.forEach(model::addElement);
             suggestedSwapsList.setModel(model);
         }
     }
@@ -169,13 +209,11 @@ public class FoodSwapUI extends JFrame {
 
         if (newSwappedMeal != null) {
             this.dispose();
-
             int response = JOptionPane.showConfirmDialog(null,
                     "Would you like to apply this swap to previously recorded meals?",
                     "Apply Swap Over Time",
                     JOptionPane.YES_NO_OPTION,
                     JOptionPane.QUESTION_MESSAGE);
-
             if (response == JOptionPane.YES_OPTION) {
                 new ApplySwapOverTimeUI(userProfile, itemToSwap, newItem).setVisible(true);
             }
