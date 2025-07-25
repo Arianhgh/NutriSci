@@ -37,4 +37,31 @@ public class ProfileController {
             return null;
         }
     }
+    public boolean updateProfile(UserProfile profile, String name, String sex, Date dob, String heightStr, String weightStr, String unit) {
+        if (name.trim().isEmpty() || sex == null || dob == null || heightStr.trim().isEmpty() || weightStr.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(null, "All fields are required.", "Validation Error", JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+
+        try {
+            profile.setName(name);
+            profile.setSex(sex);
+            profile.setDateOfBirth(dob);
+            profile.setHeight(Double.parseDouble(heightStr));
+            profile.setWeight(Double.parseDouble(weightStr));
+            profile.setMeasurementUnit(unit);
+
+            if (dbManager.updateProfile(profile)) {
+                JOptionPane.showMessageDialog(null, "Profile updated successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
+                return true;
+            } else {
+                JOptionPane.showMessageDialog(null, "Failed to update profile.", "Error", JOptionPane.ERROR_MESSAGE);
+                return false;
+            }
+
+        } catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(null, "Height and Weight must be valid numbers.", "Validation Error", JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+    }
 }

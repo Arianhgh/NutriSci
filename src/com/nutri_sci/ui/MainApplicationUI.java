@@ -134,8 +134,7 @@ public class MainApplicationUI extends JFrame implements PropertyChangeListener 
         visualizeButton.addActionListener(e -> new VisualizationHubUI(userProfile).setVisible(true));
 
         editProfileButton.addActionListener(e -> {
-            ProfileManagementUI profileUI = new ProfileManagementUI(new SplashScreenUI());
-            profileUI.setVisible(true);
+            new ProfileManagementUI(userProfile, this).setVisible(true);
         });
 
         mealLogTable.addMouseListener(new MouseAdapter() {
@@ -203,5 +202,9 @@ public class MainApplicationUI extends JFrame implements PropertyChangeListener 
         if ("mealData".equals(evt.getPropertyName())) {
             SwingUtilities.invokeLater(this::refreshMealTable);
         }
+    }
+
+    public void refreshWelcomeLabel() {
+        welcomeLabel.setText("Welcome, " + userProfile.getName() + "!");
     }
 }

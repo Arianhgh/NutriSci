@@ -499,4 +499,20 @@ public class DBManager {
         }
         return nutrients;
     }
+    public boolean updateProfile(UserProfile profile) {
+        String sql = "UPDATE USER_PROFILE SET ProfileName = ?, Sex = ?, DateOfBirth = ?, HeightCM = ?, WeightKG = ?, MeasurementUnit = ? WHERE UserID = ?";
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, profile.getName());
+            pstmt.setString(2, profile.getSex());
+            pstmt.setDate(3, new java.sql.Date(profile.getDateOfBirth().getTime()));
+            pstmt.setDouble(4, profile.getHeight());
+            pstmt.setDouble(5, profile.getWeight());
+            pstmt.setString(6, profile.getMeasurementUnit());
+            pstmt.setInt(7, profile.getId());
+            return pstmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
 }
