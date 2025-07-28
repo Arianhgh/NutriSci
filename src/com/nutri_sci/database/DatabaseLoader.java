@@ -9,14 +9,68 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
 
+/**
+ * Utility class for setting up and populating the NutriSci nutrition database.
+ * <p>
+ * This class is responsible for the initial setup of the database infrastructure,
+ * including creating all necessary tables and loading nutritional data from CSV
+ * files. It's typically run once during application setup or when initializing
+ * a fresh database instance.
+ * </p>
+ * <p>
+ * The loader handles:
+ * <ul>
+ *   <li>Database and table creation</li>
+ *   <li>CSV data parsing and import</li>
+ *   <li>Data validation and error handling during import</li>
+ *   <li>Setting up the complete nutrition database schema</li>
+ * </ul>
+ * </p>
+ * <p>
+ * <strong>Note:</strong> This is a standalone utility class with a main method
+ * for command-line execution. It's not intended to be instantiated or used
+ * as part of the regular application flow.
+ * </p>
+ * 
+ * @author Juliett
+ * @version 1.0
+ * @since 1.0
+ */
 public class DatabaseLoader {
 
+    /** Database connection URL without database name for initial setup */
     private static final String DB_URL = "jdbc:mysql://localhost/";
+    
+    /** Target database name to create and populate */
     private static final String DB_NAME = "nutrisci_db";
+    
+    /** Database username for connection */
     private static final String USER = "root";
+    
+    /** Database password for connection */
     private static final String PASS = "root";
+    
+    /** File path to the directory containing CSV data files */
     private static final String CSV_FILE_PATH = "route to csv files";
 
+    /**
+     * Main method for executing the database setup and data loading process.
+     * <p>
+     * This method performs the complete database initialization sequence:
+     * <ol>
+     *   <li>Establishes connection to MySQL server</li>
+     *   <li>Creates the nutrisci_db database if it doesn't exist</li>
+     *   <li>Creates all necessary tables for the nutrition data</li>
+     *   <li>Loads data from CSV files into the tables</li>
+     * </ol>
+     * </p>
+     * <p>
+     * The process includes comprehensive error handling and progress reporting
+     * to help diagnose any issues during database setup.
+     * </p>
+     * 
+     * @param args command line arguments (not currently used)
+     */
     public static void main(String[] args) {
         try (Connection conn = DriverManager.getConnection(DB_URL, USER, PASS);
              Statement stmt = conn.createStatement()) {
@@ -43,6 +97,17 @@ public class DatabaseLoader {
         }
     }
 
+    /**
+     * Creates all necessary database tables for the nutrition data.
+     * <p>
+     * This method sets up the complete database schema including tables for
+     * food groups, nutrient definitions, food items, and nutritional values.
+     * Tables are created with appropriate constraints, indexes, and relationships.
+     * </p>
+     * 
+     * @param stmt the SQL statement object for executing DDL commands
+     * @throws SQLException if table creation fails
+     */
     private static void createTables(Statement stmt) throws SQLException {
         System.out.println("Creating tables...");
 

@@ -1,10 +1,12 @@
 package com.nutri_sci.ui;
 
 import com.nutri_sci.controller.SwapController;
+import com.nutri_sci.database.DBManager;
 import com.nutri_sci.model.Goal;
 import com.nutri_sci.model.Meal;
 import com.nutri_sci.model.SwapSuggestion;
 import com.nutri_sci.model.UserProfile;
+import com.nutri_sci.service.NutrientCalculator;
 import com.nutri_sci.service.SwapEngine;
 
 import javax.swing.*;
@@ -43,7 +45,9 @@ public class FoodSwapUI extends JFrame {
     public FoodSwapUI(UserProfile userProfile, Meal mealToSwap) {
         this.userProfile = userProfile;
         this.originalMeal = mealToSwap;
-        this.swapEngine = new SwapEngine();
+        DBManager dbManager = DBManager.getInstance();
+        NutrientCalculator nutrientCalculator = new NutrientCalculator(dbManager);
+        this.swapEngine = new SwapEngine(nutrientCalculator, dbManager);
         this.swapController = new SwapController();
 
         setTitle("Suggest Food Swaps");

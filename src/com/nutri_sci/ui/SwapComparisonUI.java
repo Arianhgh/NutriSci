@@ -1,5 +1,6 @@
 package com.nutri_sci.ui;
 
+import com.nutri_sci.database.DBManager;
 import com.nutri_sci.model.Meal;
 import com.nutri_sci.service.NutrientCalculator;
 
@@ -19,11 +20,12 @@ public class SwapComparisonUI extends JFrame {
         setLocationRelativeTo(null);
 
         // Ensure nutrient data is available
+        NutrientCalculator nutrientCalculator = new NutrientCalculator(DBManager.getInstance());
         if (originalMeal.getNutrientBreakdown() == null) {
-            originalMeal.setNutrientBreakdown(new NutrientCalculator().calculateNutrientsForMeal(originalMeal.getIngredients()));
+            originalMeal.setNutrientBreakdown(nutrientCalculator.calculateNutrientsForMeal(originalMeal.getIngredients()));
         }
         if (swappedMeal.getNutrientBreakdown() == null) {
-            swappedMeal.setNutrientBreakdown(new NutrientCalculator().calculateNutrientsForMeal(swappedMeal.getIngredients()));
+            swappedMeal.setNutrientBreakdown(nutrientCalculator.calculateNutrientsForMeal(swappedMeal.getIngredients()));
         }
 
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,

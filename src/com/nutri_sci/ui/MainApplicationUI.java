@@ -1,5 +1,6 @@
 package com.nutri_sci.ui;
 
+import com.nutri_sci.controller.MealController;
 import com.nutri_sci.model.Meal;
 import com.nutri_sci.model.UserProfile;
 import com.nutri_sci.service.MealDataNotifier;
@@ -22,6 +23,7 @@ public class MainApplicationUI extends JFrame implements PropertyChangeListener 
 
     private final UserProfile userProfile;
     private final DBManager dbManager;
+    private final MealController mealController;
     private JTable mealLogTable;
     private DefaultTableModel tableModel;
     private JLabel welcomeLabel;
@@ -29,6 +31,9 @@ public class MainApplicationUI extends JFrame implements PropertyChangeListener 
     public MainApplicationUI(UserProfile userProfile) {
         this.userProfile = userProfile;
         this.dbManager = DBManager.getInstance();
+        // Correctly instantiate the controller with its dependencies
+        NutrientCalculator nutrientCalculator = new NutrientCalculator(this.dbManager);
+        this.mealController = new MealController(this.dbManager, nutrientCalculator);
 
         // Register as a listener for property changes
         MealDataNotifier.getInstance().addPropertyChangeListener(this);
@@ -77,16 +82,20 @@ public class MainApplicationUI extends JFrame implements PropertyChangeListener 
         controlPanel.setBorder(BorderFactory.createTitledBorder("Actions"));
 
         JButton logMealButton = new JButton("Log New Meal");
+        JButton deleteMealButton = new JButton("Delete Selected Meal");
         JButton swapFoodButton = new JButton("Suggest a Swap");
         JButton compareSwapButton = new JButton("Compare Swapped Meal");
         JButton visualizeButton = new JButton("Visualize Data");
 
         styleControlButton(logMealButton);
+        styleControlButton(deleteMealButton);
         styleControlButton(swapFoodButton);
         styleControlButton(compareSwapButton);
         styleControlButton(visualizeButton);
 
         controlPanel.add(logMealButton);
+        controlPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+        controlPanel.add(deleteMealButton);
         controlPanel.add(Box.createRigidArea(new Dimension(0, 10)));
         controlPanel.add(swapFoodButton);
         controlPanel.add(Box.createRigidArea(new Dimension(0, 10)));
@@ -99,6 +108,23 @@ public class MainApplicationUI extends JFrame implements PropertyChangeListener 
         add(mainPanel);
 
         logMealButton.addActionListener(e -> new MealLoggingUI(userProfile).setVisible(true));
+
+        deleteMealButton.addActionListener(e -> {
+            int selectedRow = mealLogTable.getSelectedRow();
+            if (selectedRow >= 0) {
+                int response = JOptionPane.showConfirmDialog(this,
+                        "Are you sure you want to delete this meal?",
+                        "Confirm Deletion",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.QUESTION_MESSAGE);
+                if (response == JOptionPane.YES_OPTION) {
+                    Meal selectedMeal = dbManager.getMealsForUser(userProfile.getId()).get(selectedRow);
+                    mealController.deleteMeal(selectedMeal.getMealId(), this);
+                }
+            } else {
+                JOptionPane.showMessageDialog(this, "Please select a meal from the journal to delete.", "No Meal Selected", JOptionPane.WARNING_MESSAGE);
+            }
+        });
 
         swapFoodButton.addActionListener(e -> {
             int selectedRow = mealLogTable.getSelectedRow();
@@ -158,7 +184,7 @@ public class MainApplicationUI extends JFrame implements PropertyChangeListener 
     public void refreshMealTable() {
         tableModel.setRowCount(0);
         List<Meal> meals = dbManager.getMealsForUser(userProfile.getId());
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm");
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
 
         for (Meal meal : meals) {
             Object[] row = {
@@ -173,7 +199,7 @@ public class MainApplicationUI extends JFrame implements PropertyChangeListener 
 
     private void displayNutrientBreakdown(Meal meal) {
         // Use the NutrientCalculator class to get the full breakdown
-        NutrientCalculator calculator = new NutrientCalculator();
+        NutrientCalculator calculator = new NutrientCalculator(DBManager.getInstance());
         Map<String, Double> nutrients = calculator.calculateNutrientsForMeal(meal.getIngredients());
         meal.setNutrientBreakdown(nutrients);
 

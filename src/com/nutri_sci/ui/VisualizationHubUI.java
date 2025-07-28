@@ -5,11 +5,13 @@ import com.nutri_sci.database.DBManager;
 import com.nutri_sci.model.UserProfile;
 import com.nutri_sci.service.CanadaFoodGuideService;
 import com.nutri_sci.service.ChartRenderer;
+import com.nutri_sci.service.NutrientCalculator;
 import com.nutri_sci.service.chart.BarChartFactory;
 import com.nutri_sci.service.chart.LineChartFactory;
 import com.nutri_sci.service.chart.PieChartFactory;
 import org.jfree.chart.ChartPanel;
 import org.jfree.chart.JFreeChart;
+import org.jfree.chart.plot.PiePlot;
 import org.jfree.data.category.DefaultCategoryDataset;
 import org.jfree.data.general.DefaultPieDataset;
 
@@ -17,7 +19,11 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 import java.awt.*;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class VisualizationHubUI extends JFrame {
 
@@ -50,7 +56,9 @@ public class VisualizationHubUI extends JFrame {
 
     public VisualizationHubUI(UserProfile userProfile) {
         this.userProfile = userProfile;
-        this.controller = new VisualizationController(userProfile);
+        DBManager dbManager = DBManager.getInstance();
+        NutrientCalculator nutrientCalculator = new NutrientCalculator(dbManager);
+        this.controller = new VisualizationController(userProfile, dbManager, nutrientCalculator);
         this.chartRenderer = new ChartRenderer();
         this.cfgService = new CanadaFoodGuideService(); // Initialize the new service
 
@@ -284,24 +292,68 @@ public class VisualizationHubUI extends JFrame {
             return;
         }
 
+        // Color mapping and sequence for food groups
+        Map<String, Color> colorMap = new HashMap<>();
+        colorMap.put("Vegetables and Fruit", new Color(34, 139, 34)); // Forest Green
+        colorMap.put("Grain Products", new Color(210, 105, 30));   // Chocolate
+        colorMap.put("Milk and Alternatives", new Color(65, 105, 225));  // Royal Blue
+        colorMap.put("Meat and Alternatives", new Color(178, 34, 34));   // Firebrick
+        colorMap.put("Other", Color.GRAY);
+        colorMap.put("Uncategorized", Color.LIGHT_GRAY);
+
+        List<String> foodGroupSequence = new ArrayList<>();
+        foodGroupSequence.add("Vegetables and Fruit");
+        foodGroupSequence.add("Grain Products");
+        foodGroupSequence.add("Milk and Alternatives");
+        foodGroupSequence.add("Meat and Alternatives");
+        foodGroupSequence.add("Other");
+        foodGroupSequence.add("Uncategorized");
+
+
         // Generate User's Plate Chart
-        DefaultPieDataset userDataset = controller.createCfgComparisonDataset(startDate, endDate);
+        DefaultPieDataset userDatasetRaw = controller.createCfgComparisonDataset(startDate, endDate);
         userPlatePanel.removeAll(); // Clear previous content
 
-        if (userDataset.getItemCount() == 0) {
+        if (userDatasetRaw.getItemCount() == 0) {
             userPlatePanel.add(new JLabel("No data for your plate in this period.", SwingConstants.CENTER));
         } else {
+            DefaultPieDataset userDataset = new DefaultPieDataset();
+            for(String foodGroup : foodGroupSequence) {
+                if(userDatasetRaw.getKeys().contains(foodGroup)) {
+                    userDataset.setValue(foodGroup, userDatasetRaw.getValue(foodGroup));
+                }
+            }
             chartRenderer.setFactory(new PieChartFactory("Your Average Plate Composition"));
             JFreeChart userChart = chartRenderer.renderChart(userDataset);
+            PiePlot userPlot = (PiePlot) userChart.getPlot();
+            for (Object key : userDataset.getKeys()) {
+                String foodGroup = (String) key;
+                if (colorMap.containsKey(foodGroup)) {
+                    userPlot.setSectionPaint(foodGroup, colorMap.get(foodGroup));
+                }
+            }
             userPlatePanel.add(new ChartPanel(userChart), BorderLayout.CENTER);
         }
 
         //Generate CFG Recommended Plate Chart
-        DefaultPieDataset cfgDataset = cfgService.createRecommendedPlateDataset();
+        DefaultPieDataset cfgDatasetRaw = cfgService.createRecommendedPlateDataset();
         cfgPlatePanel.removeAll(); // Clear previous content
+        DefaultPieDataset cfgDataset = new DefaultPieDataset();
+        for(String foodGroup : foodGroupSequence) {
+            if(cfgDatasetRaw.getKeys().contains(foodGroup)) {
+                cfgDataset.setValue(foodGroup, cfgDatasetRaw.getValue(foodGroup));
+            }
+        }
 
         chartRenderer.setFactory(new PieChartFactory("CFG Recommended Plate"));
         JFreeChart cfgChart = chartRenderer.renderChart(cfgDataset);
+        PiePlot cfgPlot = (PiePlot) cfgChart.getPlot();
+        for (Object key : cfgDataset.getKeys()) {
+            String foodGroup = (String) key;
+            if (colorMap.containsKey(foodGroup)) {
+                cfgPlot.setSectionPaint(foodGroup, colorMap.get(foodGroup));
+            }
+        }
         cfgPlatePanel.add(new ChartPanel(cfgChart), BorderLayout.CENTER);
 
         revalidate();

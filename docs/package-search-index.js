@@ -1,0 +1,1 @@
+packageSearchIndex = [{"l":"All Packages","u":"allpackages-index.html"},{"l":"com.nutri_sci"},{"l":"com.nutri_sci.controller"},{"l":"com.nutri_sci.database"},{"l":"com.nutri_sci.model"},{"l":"com.nutri_sci.service"},{"l":"com.nutri_sci.service.chart"},{"l":"com.nutri_sci.ui"}];updateSearchResults();

@@ -30,10 +30,13 @@ public class VisualizationController {
         RDA_VALUES.put("FIBRE, TOTAL DIETARY", 30.0);
     }
 
-    public VisualizationController(UserProfile userProfile) {
-        this.dbManager = DBManager.getInstance();
-        this.nutrientCalculator = new NutrientCalculator();
+    /**
+     * Modified constructor to accept dependencies for better testability.
+     */
+    public VisualizationController(UserProfile userProfile, DBManager dbManager, NutrientCalculator nutrientCalculator) {
         this.userProfile = userProfile;
+        this.dbManager = dbManager;
+        this.nutrientCalculator = nutrientCalculator;
     }
 
     public DefaultPieDataset createMacroNutrientDataset(Date startDate, Date endDate) {
@@ -310,7 +313,7 @@ public class VisualizationController {
 
         Map<String, Double> totalNutrients = new HashMap<>();
         for (Meal meal : meals) {
-            Map<String, Double> mealNutrients = new NutrientCalculator().calculateNutrientsForMeal(meal.getIngredients());
+            Map<String, Double> mealNutrients = nutrientCalculator.calculateNutrientsForMeal(meal.getIngredients());
             mealNutrients.forEach((key, value) -> totalNutrients.merge(key, value, Double::sum));
         }
 

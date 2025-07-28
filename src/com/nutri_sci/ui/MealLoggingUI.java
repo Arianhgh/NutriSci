@@ -1,7 +1,9 @@
 package com.nutri_sci.ui;
 
 import com.nutri_sci.controller.MealController;
+import com.nutri_sci.database.DBManager;
 import com.nutri_sci.model.UserProfile;
+import com.nutri_sci.service.NutrientCalculator;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -17,8 +19,13 @@ public class MealLoggingUI extends JFrame {
     private final UserProfile userProfile;
 
     public MealLoggingUI(UserProfile userProfile) {
-        this.controller = new MealController();
         this.userProfile = userProfile;
+
+        // Correctly instantiate the controller and its dependencies
+        DBManager dbManager = DBManager.getInstance();
+        NutrientCalculator nutrientCalculator = new NutrientCalculator(dbManager);
+        this.controller = new MealController(dbManager, nutrientCalculator);
+
 
         setTitle("Log a Meal for " + userProfile.getName());
         setSize(450, 400);

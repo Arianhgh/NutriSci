@@ -16,29 +16,71 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Manages all database connections and queries for the application.
- * Implements the Singleton pattern to ensure only one instance exists.
+ * Manages all database connections and operations for the NutriSci application.
+ * <p>
+ * The DBManager implements the Singleton pattern to ensure only one database
+ * connection exists throughout the application lifecycle. It provides comprehensive
+ * database access methods for user profiles, meals, food items, and nutritional
+ * data, serving as the primary data access layer for the application.
+ * </p>
+ * <p>
+ * Key responsibilities include:
+ * <ul>
+ *   <li>Managing database connections and initialization</li>
+ *   <li>User profile CRUD operations</li>
+ *   <li>Meal logging and retrieval</li>
+ *   <li>Food item searches and nutritional data lookups</li>
+ *   <li>Food group classifications and filtering</li>
+ *   <li>Nutritional analysis and ranking operations</li>
+ * </ul>
+ * </p>
+ * <p>
+ * The class automatically creates necessary application tables if they don't exist
+ * and provides robust error handling for database operations.
+ * </p>
+ * 
+ * @author Juliett
+ * @version 1.0
+ * @since 1.0
  */
 public class DBManager {
-    // The single, static instance of the DBManager for the Singleton pattern.
+    
+    /** The singleton instance of DBManager */
     private static DBManager instance;
+    
+    /** Database connection instance */
     private Connection connection;
 
-    // Database connection details.
+    /** Database connection URL */
     private static final String DB_URL = "jdbc:mysql://localhost/nutrisci_db";
+    
+    /** Database username */
     private static final String USER = "root";
+    
+    /** Database password */
     private static final String PASS = "root";
 
-    // Constant IDs mapping to the primary keys in the NUTRIENT_NAME table.
+    /** Nutrient ID for calories in the NUTRIENT_NAME table */
     private static final int CALORIE_NUTRIENT_ID = 208;
+    
+    /** Nutrient ID for protein in the NUTRIENT_NAME table */
     private static final int PROTEIN_NUTRIENT_ID = 203;
+    
+    /** Nutrient ID for fiber in the NUTRIENT_NAME table */
     private static final int FIBER_NUTRIENT_ID = 291;
 
-    // Regex to parse ingredient strings like "100g chicken breast".
+    /** Regular expression pattern for parsing ingredient lines (e.g., "100g chicken breast") */
     private final Pattern ingredientPattern = Pattern.compile("(\\d+\\.?\\d*)\\s*g\\s*(.+)", Pattern.CASE_INSENSITIVE);
 
     /**
-     * Private constructor to prevent direct instantiation (part of Singleton pattern).
+     * Private constructor to prevent direct instantiation (Singleton pattern).
+     * <p>
+     * Establishes database connection and creates necessary application tables
+     * if they don't already exist. Throws RuntimeException if database
+     * connection cannot be established.
+     * </p>
+     * 
+     * @throws RuntimeException if database connection fails
      */
     private DBManager() {
         try {
@@ -509,6 +551,17 @@ public class DBManager {
             pstmt.setDouble(5, profile.getWeight());
             pstmt.setString(6, profile.getMeasurementUnit());
             pstmt.setInt(7, profile.getId());
+            return pstmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public boolean deleteMeal(int mealId) {
+        String sql = "DELETE FROM MEAL_LOG WHERE MealID = ?";
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setInt(1, mealId);
             return pstmt.executeUpdate() > 0;
         } catch (SQLException e) {
             e.printStackTrace();

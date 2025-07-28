@@ -6,17 +6,56 @@ import org.jfree.chart.plot.PlotOrientation;
 import org.jfree.data.category.CategoryDataset;
 import org.jfree.data.general.Dataset;
 
+/**
+ * Factory implementation for creating bar charts for nutritional data visualization.
+ * <p>
+ * This factory creates vertical bar charts commonly used to compare nutritional
+ * values across different categories such as different nutrients, meals, or time
+ * periods. Bar charts are ideal for showing discrete comparisons and trends in
+ * nutritional data.
+ * </p>
+ * 
+ * @author Juliett
+ * @version 1.0
+ * @since 1.0
+ * @see IChartFactory
+ */
 public class BarChartFactory implements IChartFactory {
+    
+    /** The title to display on the generated bar chart */
     private final String title;
+    
+    /** The label for the category axis (typically the x-axis) */
     private final String categoryAxisLabel;
+    
+    /** The label for the value axis (typically the y-axis) */
     private final String valueAxisLabel;
 
+    /**
+     * Constructs a new BarChartFactory with the specified labels and title.
+     * 
+     * @param title the title to display on the bar chart
+     * @param categoryAxisLabel the label for the category axis (x-axis)
+     * @param valueAxisLabel the label for the value axis (y-axis)
+     */
     public BarChartFactory(String title, String categoryAxisLabel, String valueAxisLabel) {
         this.title = title;
         this.categoryAxisLabel = categoryAxisLabel;
         this.valueAxisLabel = valueAxisLabel;
     }
 
+    /**
+     * Creates a vertical bar chart from the provided category dataset.
+     * <p>
+     * The chart is configured with vertical orientation and includes legends
+     * and tooltips for enhanced user interaction. This is suitable for comparing
+     * nutritional values across different categories.
+     * </p>
+     * 
+     * @param dataset the category dataset containing the data to visualize
+     * @return a configured vertical bar chart ready for display
+     * @throws ClassCastException if the dataset is not a CategoryDataset
+     */
     @Override
     public JFreeChart createChart(Dataset dataset) {
         return ChartFactory.createBarChart(
@@ -25,6 +64,8 @@ public class BarChartFactory implements IChartFactory {
                 valueAxisLabel,
                 (CategoryDataset) dataset,
                 PlotOrientation.VERTICAL,
-                true, true, false);
+                true, // include legend
+                true, // generate tooltips
+                false); // no URLs
     }
 }

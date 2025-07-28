@@ -1,0 +1,7 @@
+com.nutri_sci
+com.nutri_sci.controller
+com.nutri_sci.database
+com.nutri_sci.model
+com.nutri_sci.service
+com.nutri_sci.service.chart
+com.nutri_sci.ui
