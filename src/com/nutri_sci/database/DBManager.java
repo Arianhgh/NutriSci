@@ -6,42 +6,13 @@ import com.nutri_sci.model.UserProfile;
 
 import java.sql.*;
 import java.util.Date;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
- * Manages all database connections and operations for the NutriSci application.
- * <p>
- * The DBManager implements the Singleton pattern to ensure only one database
- * connection exists throughout the application lifecycle. It provides comprehensive
- * database access methods for user profiles, meals, food items, and nutritional
- * data, serving as the primary data access layer for the application.
- * </p>
- * <p>
- * Key responsibilities include:
- * <ul>
- *   <li>Managing database connections and initialization</li>
- *   <li>User profile CRUD operations</li>
- *   <li>Meal logging and retrieval</li>
- *   <li>Food item searches and nutritional data lookups</li>
- *   <li>Food group classifications and filtering</li>
- *   <li>Nutritional analysis and ranking operations</li>
- * </ul>
- * </p>
- * <p>
- * The class automatically creates necessary application tables if they don't exist
- * and provides robust error handling for database operations.
- * </p>
- * 
- * @author Juliett
- * @version 1.0
- * @since 1.0
+ * Manages database connections and provides access to repository classes.
+ * Refactored to use composition with repository pattern for better separation of concerns.
  */
 public class DBManager {
     
@@ -60,36 +31,32 @@ public class DBManager {
     /** Database password */
     private static final String PASS = "root";
 
-    /** Nutrient ID for calories in the NUTRIENT_NAME table */
-    private static final int CALORIE_NUTRIENT_ID = 208;
-    
-    /** Nutrient ID for protein in the NUTRIENT_NAME table */
-    private static final int PROTEIN_NUTRIENT_ID = 203;
-    
-    /** Nutrient ID for fiber in the NUTRIENT_NAME table */
-    private static final int FIBER_NUTRIENT_ID = 291;
-
-    /** Regular expression pattern for parsing ingredient lines (e.g., "100g chicken breast") */
-    private final Pattern ingredientPattern = Pattern.compile("(\\d+\\.?\\d*)\\s*g\\s*(.+)", Pattern.CASE_INSENSITIVE);
+    // Repository instances
+    private UserProfileRepository userProfileRepository;
+    private MealRepository mealRepository;
+    private FoodRepository foodRepository;
 
     /**
      * Private constructor to prevent direct instantiation (Singleton pattern).
-     * <p>
-     * Establishes database connection and creates necessary application tables
-     * if they don't already exist. Throws RuntimeException if database
-     * connection cannot be established.
-     * </p>
-     * 
-     * @throws RuntimeException if database connection fails
      */
     private DBManager() {
         try {
             connection = DriverManager.getConnection(DB_URL, USER, PASS);
             createApplicationTables();
+            initializeRepositories();
         } catch (SQLException e) {
             e.printStackTrace();
             throw new RuntimeException("Failed to connect to the database.");
         }
+    }
+
+    /**
+     * Initializes the repository instances with the database connection.
+     */
+    private void initializeRepositories() {
+        this.userProfileRepository = new UserProfileRepository(connection);
+        this.mealRepository = new MealRepository(connection);
+        this.foodRepository = new FoodRepository(connection);
     }
 
     /**
@@ -138,434 +105,86 @@ public class DBManager {
         return instance;
     }
 
-    public Date getMostRecentMealDate(int userId) {
-        String sql = "SELECT MAX(MealDate) AS latestDate FROM MEAL_LOG WHERE UserID = ?";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setInt(1, userId);
-            ResultSet rs = pstmt.executeQuery();
-            if (rs.next()) {
-                Timestamp ts = rs.getTimestamp("latestDate");
-                if (ts != null) {
-                    return new Date(ts.getTime());
-                }
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return null; // Return null if no meals are found
-    }
-
-    public List<String> getFoodsByNutrientRank(String nutrientName, String rank) {
-        int nutrientId;
-        switch (nutrientName) {
-            case "Protein":
-                nutrientId = PROTEIN_NUTRIENT_ID;
-                break;
-            case "Fiber":
-                nutrientId = FIBER_NUTRIENT_ID;
-                break;
-            case "Calories":
-            default:
-                nutrientId = CALORIE_NUTRIENT_ID;
-                break;
-        }
-
-        List<String> foods = new ArrayList<>();
-        String sortOrder = rank.equalsIgnoreCase("HIGH") ? "DESC" : "ASC";
-        String sql = "SELECT FN.FoodDescription FROM NUTRIENT_AMOUNT NA " +
-                "JOIN FOOD_NAME FN ON NA.FoodID = FN.FoodID " +
-                "WHERE NA.NutrientID = ? " +
-                "ORDER BY NA.NutrientValue " + sortOrder + " " +
-                "LIMIT 300";
-
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setInt(1, nutrientId);
-            ResultSet rs = pstmt.executeQuery();
-            while (rs.next()) {
-                foods.add(rs.getString("FoodDescription"));
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return foods;
-    }
-
+    // Delegate methods to repositories - UserProfile operations
     public UserProfile saveProfile(UserProfile profile) {
-        String sql = "INSERT INTO USER_PROFILE (ProfileName, Sex, DateOfBirth, HeightCM, WeightKG, MeasurementUnit) VALUES (?, ?, ?, ?, ?, ?)";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            pstmt.setString(1, profile.getName());
-            pstmt.setString(2, profile.getSex());
-            pstmt.setDate(3, new java.sql.Date(profile.getDateOfBirth().getTime()));
-            pstmt.setDouble(4, profile.getHeight());
-            pstmt.setDouble(5, profile.getWeight());
-            pstmt.setString(6, profile.getMeasurementUnit());
-            pstmt.executeUpdate();
-
-            ResultSet generatedKeys = pstmt.getGeneratedKeys();
-            if (generatedKeys.next()) {
-                profile.setId(generatedKeys.getInt(1));
-            }
-            return profile;
-        } catch (SQLException e) {
-            e.printStackTrace();
-            return null;
-        }
+        return userProfileRepository.saveProfile(profile);
     }
 
     public UserProfile getProfile(String profileName) {
-        String sql = "SELECT * FROM USER_PROFILE WHERE ProfileName = ?";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setString(1, profileName);
-            ResultSet rs = pstmt.executeQuery();
-            if (rs.next()) {
-                UserProfile profile = new UserProfile();
-                profile.setId(rs.getInt("UserID"));
-                profile.setName(rs.getString("ProfileName"));
-                profile.setSex(rs.getString("Sex"));
-                profile.setDateOfBirth(rs.getDate("DateOfBirth"));
-                profile.setHeight(rs.getDouble("HeightCM"));
-                profile.setWeight(rs.getDouble("WeightKG"));
-                profile.setMeasurementUnit(rs.getString("MeasurementUnit"));
-                return profile;
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return null;
+        return userProfileRepository.getProfile(profileName);
     }
 
     public Set<String> getAllUserNames() {
-        Set<String> userNames = new HashSet<>();
-        String sql = "SELECT ProfileName FROM USER_PROFILE";
-        try (Statement stmt = connection.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
-            while (rs.next()) {
-                userNames.add(rs.getString("ProfileName"));
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return userNames;
+        return userProfileRepository.getAllUserNames();
+    }
+
+    public boolean updateProfile(UserProfile profile) {
+        return userProfileRepository.updateProfile(profile);
+    }
+
+    // Delegate methods to repositories - Meal operations
+    public Date getMostRecentMealDate(int userId) {
+        return mealRepository.getMostRecentMealDate(userId);
     }
 
     public boolean saveMeal(int userId, Meal meal) {
-        String sql = "INSERT INTO MEAL_LOG (UserID, MealDate, MealType, Ingredients, EstimatedCalories, IsSwapped, OriginalMealID) VALUES (?, ?, ?, ?, ?, ?, ?)";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setInt(1, userId);
-            pstmt.setTimestamp(2, new Timestamp(meal.getDate().getTime()));
-            pstmt.setString(3, meal.getMealType());
-            pstmt.setString(4, meal.getIngredients());
-            pstmt.setDouble(5, meal.getEstimatedCalories());
-            pstmt.setBoolean(6, meal.isSwapped());
-            if (meal.getOriginalMealId() != null) {
-                pstmt.setInt(7, meal.getOriginalMealId());
-            } else {
-                pstmt.setNull(7, java.sql.Types.INTEGER);
-            }
-            return pstmt.executeUpdate() > 0;
-        } catch (SQLException e) {
-            e.printStackTrace();
-            return false;
-        }
+        return mealRepository.saveMeal(userId, meal);
     }
 
     public List<Meal> getMealsForUser(int userId) {
-        return getMealsForUser(userId, null, null, false);
+        return mealRepository.getMealsForUser(userId);
     }
 
     public List<Meal> getMealsForUser(int userId, Date startDate, Date endDate) {
-        return getMealsForUser(userId, startDate, endDate, false);
+        return mealRepository.getMealsForUser(userId, startDate, endDate);
     }
 
     public List<Meal> getMealsForUser(int userId, Date startDate, Date endDate, boolean includeReplacedMeals) {
-        List<Meal> meals = new ArrayList<>();
-        StringBuilder sql = new StringBuilder("SELECT * FROM MEAL_LOG WHERE UserID = ?");
-
-        if (!includeReplacedMeals) {
-            sql.append(" AND MealID NOT IN (SELECT OriginalMealID FROM MEAL_LOG WHERE OriginalMealID IS NOT NULL AND UserID = ?)");
-        }
-
-        if (startDate != null) {
-            sql.append(" AND MealDate >= ?");
-        }
-        if (endDate != null) {
-            sql.append(" AND MealDate <= ?");
-        }
-        sql.append(" ORDER BY MealDate DESC");
-
-        try (PreparedStatement pstmt = connection.prepareStatement(sql.toString())) {
-            int paramIndex = 1;
-            pstmt.setInt(paramIndex++, userId);
-            if (!includeReplacedMeals) {
-                pstmt.setInt(paramIndex++, userId);
-            }
-            if (startDate != null) {
-                pstmt.setTimestamp(paramIndex++, new Timestamp(startDate.getTime()));
-            }
-            if (endDate != null) {
-                pstmt.setTimestamp(paramIndex++, new Timestamp(endDate.getTime()));
-            }
-
-            ResultSet rs = pstmt.executeQuery();
-            while (rs.next()) {
-                Meal meal = new Meal();
-                meal.setMealId(rs.getInt("MealID"));
-                meal.setDate(rs.getTimestamp("MealDate"));
-                meal.setMealType(rs.getString("MealType"));
-                meal.setIngredients(rs.getString("Ingredients"));
-                meal.setEstimatedCalories(rs.getDouble("EstimatedCalories"));
-                meal.setSwapped(rs.getBoolean("IsSwapped"));
-                meal.setOriginalMealId((Integer) rs.getObject("OriginalMealID"));
-                meals.add(meal);
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return meals;
+        return mealRepository.getMealsForUser(userId, startDate, endDate, includeReplacedMeals);
     }
 
-
-    /**
-     * Retrieves a single meal by its unique ID.
-     * @param mealId The ID of the meal to retrieve.
-     * @return The Meal object, or null if not found.
-     */
     public Meal getMealById(int mealId) {
-        String sql = "SELECT * FROM MEAL_LOG WHERE MealID = ?";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setInt(1, mealId);
-            ResultSet rs = pstmt.executeQuery();
-            if (rs.next()) {
-                Meal meal = new Meal();
-                meal.setMealId(rs.getInt("MealID"));
-                meal.setDate(rs.getTimestamp("MealDate"));
-                meal.setMealType(rs.getString("MealType"));
-                meal.setIngredients(rs.getString("Ingredients"));
-                meal.setEstimatedCalories(rs.getDouble("EstimatedCalories"));
-                meal.setSwapped(rs.getBoolean("IsSwapped"));
-                meal.setOriginalMealId((Integer) rs.getObject("OriginalMealID"));
-                return meal;
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return null;
+        return mealRepository.getMealById(mealId);
     }
-
 
     public boolean hasUserLoggedMealTypeOnDate(int userId, String mealType, java.util.Date date) {
-        String sql = "SELECT COUNT(*) FROM MEAL_LOG WHERE UserID = ? AND MealType = ? AND DATE(MealDate) = ?";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setInt(1, userId);
-            pstmt.setString(2, mealType);
-            pstmt.setDate(3, new java.sql.Date(date.getTime()));
-
-            ResultSet rs = pstmt.executeQuery();
-            if (rs.next()) {
-                return rs.getInt(1) > 0;
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return false;
-    }
-
-    public double getCaloriesPer100g(int foodId) {
-        String sql = "SELECT NutrientValue FROM NUTRIENT_AMOUNT WHERE FoodID = ? AND NutrientID = ?";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setInt(1, foodId);
-            pstmt.setInt(2, CALORIE_NUTRIENT_ID);
-            ResultSet rs = pstmt.executeQuery();
-            if (rs.next()) {
-                return rs.getDouble("NutrientValue");
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return 0.0;
-    }
-
-    /**
-     * Searches the database for food items matching a description and returns a ranked list.
-     * This method REPLACES the old findFoodId method.
-     *
-     * @param description The user-entered food description (e.g., "brown rice").
-     * @param limit The maximum number of suggestions to return.
-     * @return A list of FoodItem objects representing the best matches.
-     */
-    public List<FoodItem> findFoodSuggestions(String description, int limit) {
-        List<FoodItem> suggestions = new ArrayList<>();
-        String sanitizedDescription = description.trim().replace(",", "");
-        String[] words = sanitizedDescription.split("\\s+");
-        if (words.length == 0) return suggestions;
-
-        int wordsToUse = Math.min(words.length, 4);
-
-        StringBuilder sql = new StringBuilder("SELECT FoodID, FoodDescription FROM FOOD_NAME WHERE ");
-        for (int i = 0; i < wordsToUse; i++) {
-            sql.append("FoodDescription REGEXP ?");
-            if (i < wordsToUse - 1) {
-                sql.append(" AND ");
-            }
-        }
-        // This ordering logic is preserved to ensure the best matches appear first.
-        sql.append(" ORDER BY ");
-        sql.append("CASE ");
-        sql.append("    WHEN FoodDescription LIKE ? THEN 0 "); // Prioritize exact matches
-        sql.append("    WHEN FoodDescription LIKE '%raw%' THEN 1 ");
-        sql.append("    WHEN FoodDescription NOT LIKE '%cooked%' AND FoodDescription NOT LIKE '%canned%' AND FoodDescription NOT LIKE '%frozen%' AND FoodDescription NOT LIKE '%sauce%' AND FoodDescription NOT LIKE '%soup%' AND FoodDescription NOT LIKE '%dish%' THEN 2 ");
-        sql.append("    ELSE 3 ");
-        sql.append("END ASC, ");
-        sql.append("LENGTH(FoodDescription) ASC ");
-        sql.append("LIMIT ?");
-
-        try (PreparedStatement pstmt = connection.prepareStatement(sql.toString())) {
-            int paramIndex = 1;
-            for (int i = 0; i < wordsToUse; i++) {
-                String sanitizedWord = words[i].replaceAll("([\\\\\\.\\[\\]\\{\\}\\(\\)\\*\\+\\?\\^\\$\\|])", "\\\\$1");
-                pstmt.setString(paramIndex++, "\\b" + sanitizedWord + "\\b");
-            }
-            pstmt.setString(paramIndex++, description); // For the exact match case
-            pstmt.setInt(paramIndex, limit);
-
-            ResultSet rs = pstmt.executeQuery();
-            while (rs.next()) {
-                suggestions.add(new FoodItem(
-                        rs.getInt("FoodID"),
-                        rs.getString("FoodDescription")
-                ));
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return suggestions;
-    }
-
-    private int findFoodIdByExactDescription(String description) {
-        String sql = "SELECT FoodID FROM FOOD_NAME WHERE FoodDescription = ? LIMIT 1";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setString(1, description);
-            ResultSet rs = pstmt.executeQuery();
-            if (rs.next()) {
-                return rs.getInt("FoodID");
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return -1;
-    }
-
-    public String getFoodGroup(String fullIngredientLine) {
-        Matcher matcher = ingredientPattern.matcher(fullIngredientLine.trim());
-        if (!matcher.matches()) {
-            return null;
-        }
-        String description = matcher.group(2).trim();
-        int foodId = findFoodIdByExactDescription(description);
-
-        if (foodId == -1) return null;
-
-        String sql = "SELECT FG.FoodGroupName FROM FOOD_NAME FN JOIN FOOD_GROUP FG ON FN.FoodGroupID = FG.FoodGroupID WHERE FN.FoodID = ?";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setInt(1, foodId);
-            ResultSet rs = pstmt.executeQuery();
-            if (rs.next()) {
-                return rs.getString("FoodGroupName");
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-
-    public List<String> getFoodsFromGroup(String foodGroup) {
-        List<String> foods = new ArrayList<>();
-        String sql = "SELECT FN.FoodDescription FROM FOOD_NAME FN JOIN FOOD_GROUP FG ON FN.FoodGroupID = FG.FoodGroupID WHERE FG.FoodGroupName = ?";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setString(1, foodGroup);
-            ResultSet rs = pstmt.executeQuery();
-            while (rs.next()) {
-                foods.add(rs.getString("FoodDescription"));
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return foods;
-    }
-
-    public Map<String, Double> getNutrientProfile(String foodDescription) {
-        int foodId = findFoodIdByExactDescription(foodDescription);
-        if (foodId == -1) return new HashMap<>();
-        return getNutrientProfileById(foodId);
-    }
-
-    private Map<String, Double> getNutrientProfileById(int foodId) {
-        Map<String, Double> nutrients = new HashMap<>();
-        String sql = "SELECT NutrientID, NutrientValue FROM NUTRIENT_AMOUNT WHERE FoodID = ?";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setInt(1, foodId);
-            ResultSet rs = pstmt.executeQuery();
-            while (rs.next()) {
-                int nutrientId = rs.getInt("NutrientID");
-                double value = rs.getDouble("NutrientValue");
-                if (nutrientId == CALORIE_NUTRIENT_ID) nutrients.put("Calories", value);
-                else if (nutrientId == PROTEIN_NUTRIENT_ID) nutrients.put("Protein", value);
-                else if (nutrientId == FIBER_NUTRIENT_ID) nutrients.put("Fiber", value);
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return nutrients;
-    }
-
-    public Map<String, Double> getComprehensiveNutrientProfile(String foodDescription) {
-        int foodId = findFoodIdByExactDescription(foodDescription);
-        if (foodId == -1) return new HashMap<>();
-
-        Map<String, Double> nutrients = new HashMap<>();
-        String sql = "SELECT na.NutrientValue, nn.NutrientName, nn.NutrientUnit " +
-                "FROM NUTRIENT_AMOUNT na " +
-                "JOIN NUTRIENT_NAME nn ON na.NutrientID = nn.NutrientID " +
-                "WHERE na.FoodID = ?";
-
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setInt(1, foodId);
-            ResultSet rs = pstmt.executeQuery();
-            while (rs.next()) {
-                String name = rs.getString("NutrientName");
-                double value = rs.getDouble("NutrientValue");
-                String unit = rs.getString("NutrientUnit");
-                nutrients.put(name + " (" + unit + ")", value);
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return nutrients;
-    }
-    public boolean updateProfile(UserProfile profile) {
-        String sql = "UPDATE USER_PROFILE SET ProfileName = ?, Sex = ?, DateOfBirth = ?, HeightCM = ?, WeightKG = ?, MeasurementUnit = ? WHERE UserID = ?";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setString(1, profile.getName());
-            pstmt.setString(2, profile.getSex());
-            pstmt.setDate(3, new java.sql.Date(profile.getDateOfBirth().getTime()));
-            pstmt.setDouble(4, profile.getHeight());
-            pstmt.setDouble(5, profile.getWeight());
-            pstmt.setString(6, profile.getMeasurementUnit());
-            pstmt.setInt(7, profile.getId());
-            return pstmt.executeUpdate() > 0;
-        } catch (SQLException e) {
-            e.printStackTrace();
-            return false;
-        }
+        return mealRepository.hasUserLoggedMealTypeOnDate(userId, mealType, date);
     }
 
     public boolean deleteMeal(int mealId) {
-        String sql = "DELETE FROM MEAL_LOG WHERE MealID = ?";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setInt(1, mealId);
-            return pstmt.executeUpdate() > 0;
-        } catch (SQLException e) {
-            e.printStackTrace();
-            return false;
-        }
+        return mealRepository.deleteMeal(mealId);
+    }
+
+    // Delegate methods to repositories - Food operations
+    public List<String> getFoodsByNutrientRank(String nutrientName, String rank) {
+        return foodRepository.getFoodsByNutrientRank(nutrientName, rank);
+    }
+
+    public double getCaloriesPer100g(int foodId) {
+        return foodRepository.getCaloriesPer100g(foodId);
+    }
+
+    public List<FoodItem> findFoodSuggestions(String description, int limit) {
+        return foodRepository.findFoodSuggestions(description, limit);
+    }
+
+    public String getFoodGroup(String fullIngredientLine) {
+        return foodRepository.getFoodGroup(fullIngredientLine);
+    }
+
+    public List<String> getFoodsFromGroup(String foodGroup) {
+        return foodRepository.getFoodsFromGroup(foodGroup);
+    }
+
+    public Map<String, Double> getNutrientProfile(String foodDescription) {
+        return foodRepository.getNutrientProfile(foodDescription);
+    }
+
+    public Map<String, Double> getComprehensiveNutrientProfile(String foodDescription) {
+        return foodRepository.getComprehensiveNutrientProfile(foodDescription);
+    }
+
+    public Map<String, Double> getFoodGroupDistribution(int userId, Date startDate, Date endDate) {
+        return foodRepository.getFoodGroupDistribution(userId, startDate, endDate);
     }
 }

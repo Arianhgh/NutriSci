@@ -18,24 +18,7 @@ import java.util.stream.Collectors;
 
 /**
  * Core service responsible for finding and evaluating food swap recommendations.
- * <p>
- * The SwapEngine analyzes meals and suggests healthier food alternatives based on
- * user-defined nutritional goals. It employs a sophisticated scoring algorithm that
- * balances goal achievement with nutritional stability, ensuring that recommended
- * swaps improve targeted nutrients while minimizing disruption to other nutritional
- * values.
- * </p>
- * <p>
- * The engine supports both relative (percentage-based) and absolute goal targeting,
- * and can optionally restrict suggestions to foods within the same food group for
- * better culinary compatibility.
- * </p>
- * 
- * @author Juliett
- * @version 1.0
- * @since 1.0
- * @see com.nutri_sci.model.Goal
- * @see com.nutri_sci.model.SwapSuggestion
+ * Refactored to use extracted methods for better maintainability.
  */
 public class SwapEngine {
 
@@ -57,12 +40,6 @@ public class SwapEngine {
     /** Bonus score for swaps within the same food group */
     private static final double FOOD_GROUP_BONUS = -20.0;
 
-    /**
-     * Constructs a new SwapEngine with the required dependencies.
-     * 
-     * @param nutrientCalculator service for calculating meal nutritional values
-     * @param dbManager database manager for accessing food and nutrition data
-     */
     public SwapEngine(NutrientCalculator nutrientCalculator, DBManager dbManager) {
         this.nutrientCalculator = nutrientCalculator;
         this.dbManager = dbManager;
@@ -70,28 +47,7 @@ public class SwapEngine {
 
     /**
      * Finds and evaluates potential food swaps for a specific ingredient in a meal.
-     * <p>
-     * This method analyzes the specified ingredient and returns a list of ranked
-     * swap suggestions that help achieve the user's nutritional goals. The algorithm
-     * considers goal achievement, nutritional stability, and food group compatibility
-     * when scoring potential swaps.
-     * </p>
-     * <p>
-     * The method supports various filtering options:
-     * <ul>
-     *   <li><strong>sameGroupOnly</strong>: Restricts swaps to the same food group</li>
-     *   <li><strong>strictTolerance</strong>: Excludes swaps that exceed stability tolerance</li>
-     *   <li><strong>tolerance</strong>: Maximum allowed deviation for non-target nutrients</li>
-     * </ul>
-     * </p>
-     * 
-     * @param originalMeal the meal containing the ingredient to swap
-     * @param itemToSwap the ingredient to replace (format: "100g chicken breast")
-     * @param goals list of nutritional goals to optimize for
-     * @param tolerance maximum percentage deviation allowed for non-target nutrients (e.g., 20.0 for 20%)
-     * @param sameGroupOnly if true, only consider swaps within the same food group
-     * @param strictTolerance if true, exclude any swaps that exceed the tolerance
-     * @return list of swap suggestions ranked by score (best first), limited to top 20
+     * Refactored to use extracted methods for better readability and maintainability.
      */
     public List<SwapSuggestion> findSwaps(Meal originalMeal, String itemToSwap, List<Goal> goals, double tolerance, boolean sameGroupOnly, boolean strictTolerance) {
         Matcher matcher = ingredientPattern.matcher(itemToSwap.trim());
@@ -104,71 +60,138 @@ public class SwapEngine {
         Map<String, Double> originalItemNutrients = dbManager.getNutrientProfile(originalDescription);
         if (originalItemNutrients.isEmpty()) return new ArrayList<>();
 
+        // Get potential swap items
+        Set<String> potentialSwapsSet = getPotentialSwapItems(goals, itemToSwap, sameGroupOnly);
+        if (potentialSwapsSet.isEmpty()) return new ArrayList<>();
+
+        // Score and filter suggestions
+        List<SwapSuggestion> scoredSuggestions = scoreSuggestions(potentialSwapsSet, originalDescription, 
+                originalItemNutrients, goals, tolerance, strictTolerance, originalQuantity, itemToSwap);
+
+        return filterSuggestions(scoredSuggestions);
+    }
+
+    /**
+     * Gets potential swap items based on goals and constraints.
+     * Extracted method to reduce complexity in findSwaps.
+     */
+    private Set<String> getPotentialSwapItems(List<Goal> goals, String itemToSwap, boolean sameGroupOnly) {
         Set<String> potentialSwapsSet = new HashSet<>();
         String originalFoodGroup = dbManager.getFoodGroup(itemToSwap);
 
         if (sameGroupOnly) {
-            if (originalFoodGroup != null) potentialSwapsSet.addAll(dbManager.getFoodsFromGroup(originalFoodGroup));
-            else return new ArrayList<>();
+            if (originalFoodGroup != null) {
+                potentialSwapsSet.addAll(dbManager.getFoodsFromGroup(originalFoodGroup));
+            }
         } else {
             for (Goal goal : goals) {
                 String rank = goal.getType().equals("Increase") ? "HIGH" : "LOW";
                 potentialSwapsSet.addAll(dbManager.getFoodsByNutrientRank(goal.getNutrient(), rank));
             }
-            if (originalFoodGroup != null) potentialSwapsSet.addAll(dbManager.getFoodsFromGroup(originalFoodGroup));
+            if (originalFoodGroup != null) {
+                potentialSwapsSet.addAll(dbManager.getFoodsFromGroup(originalFoodGroup));
+            }
         }
 
+        return potentialSwapsSet;
+    }
+
+    /**
+     * Scores potential suggestions and filters based on goals and constraints.
+     * Extracted method to reduce complexity in findSwaps.
+     */
+    private List<SwapSuggestion> scoreSuggestions(Set<String> potentialSwapsSet, String originalDescription,
+            Map<String, Double> originalItemNutrients, List<Goal> goals, double tolerance, 
+            boolean strictTolerance, double originalQuantity, String itemToSwap) {
+        
         List<SwapSuggestion> scoredSuggestions = new ArrayList<>();
+        String originalFoodGroup = dbManager.getFoodGroup(itemToSwap);
+
         for (String potentialSwap : new ArrayList<>(potentialSwapsSet)) {
             if (potentialSwap.equalsIgnoreCase(originalDescription)) continue;
 
             Map<String, Double> newItemNutrients = dbManager.getNutrientProfile(potentialSwap);
             if (newItemNutrients.isEmpty()) continue;
 
-            boolean movesInCorrectDirection = true;
-            for (Goal goal : goals) {
-                double actualChange = newItemNutrients.getOrDefault(goal.getNutrient(), 0.0) - originalItemNutrients.getOrDefault(goal.getNutrient(), 0.0);
-                if ((goal.getType().equals("Increase") && actualChange < 0) || (goal.getType().equals("Decrease") && actualChange > 0)) {
-                    movesInCorrectDirection = false;
-                    break;
-                }
+            // Check if swap moves in correct direction for goals
+            if (!movesInCorrectDirection(originalItemNutrients, newItemNutrients, goals)) {
+                continue;
             }
-            if (!movesInCorrectDirection) continue;
 
+            // Calculate scores
             double[] scores = calculateSwapScores(originalItemNutrients, newItemNutrients, goals, tolerance);
             double finalScore = scores[0];
             double stabilityPenalty = scores[1];
 
             if (strictTolerance && stabilityPenalty > 0) continue;
 
+            // Apply food group bonus
             String swapFoodGroup = dbManager.getFoodGroup("100g " + potentialSwap);
             if (swapFoodGroup != null && swapFoodGroup.equals(originalFoodGroup)) {
                 finalScore += FOOD_GROUP_BONUS;
             }
 
-            // Calculate both absolute and percentage changes scaled by ingredient quantity
+            // Calculate nutrient changes
             Map<String, Double> nutrientChanges = new HashMap<>();
             Map<String, Double> nutrientPercentChanges = new HashMap<>();
-            Set<String> allNutrientKeys = new HashSet<>(originalItemNutrients.keySet());
-            allNutrientKeys.addAll(newItemNutrients.keySet());
+            calculateNutrientChanges(originalItemNutrients, newItemNutrients, originalQuantity, 
+                    nutrientChanges, nutrientPercentChanges);
 
-            for (String nutrient : allNutrientKeys) {
-                // Values must be scaled by the quantity of the ingredient in the meal
-                double originalValTotal = originalItemNutrients.getOrDefault(nutrient, 0.0) * (originalQuantity / 100.0);
-                double newValTotal = newItemNutrients.getOrDefault(nutrient, 0.0) * (originalQuantity / 100.0);
-
-                nutrientChanges.put(nutrient, newValTotal - originalValTotal);
-
-                if (originalValTotal != 0) {
-                    nutrientPercentChanges.put(nutrient, (newValTotal - originalValTotal) / originalValTotal);
-                } else {
-                    nutrientPercentChanges.put(nutrient, newValTotal > 0 ? 1.0 : 0.0);
-                }
-            }
-
-            scoredSuggestions.add(new SwapSuggestion(potentialSwap, swapFoodGroup, finalScore, nutrientChanges, nutrientPercentChanges));
+            scoredSuggestions.add(new SwapSuggestion(potentialSwap, swapFoodGroup, finalScore, 
+                    nutrientChanges, nutrientPercentChanges));
         }
 
+        return scoredSuggestions;
+    }
+
+    /**
+     * Checks if a potential swap moves in the correct direction for all goals.
+     * Extracted method to improve readability.
+     */
+    private boolean movesInCorrectDirection(Map<String, Double> originalNutrients, 
+            Map<String, Double> newNutrients, List<Goal> goals) {
+        for (Goal goal : goals) {
+            double actualChange = newNutrients.getOrDefault(goal.getNutrient(), 0.0) - 
+                    originalNutrients.getOrDefault(goal.getNutrient(), 0.0);
+            if ((goal.getType().equals("Increase") && actualChange < 0) || 
+                (goal.getType().equals("Decrease") && actualChange > 0)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Calculates absolute and percentage changes for all nutrients.
+     * Extracted method to reduce complexity in the main scoring loop.
+     */
+    private void calculateNutrientChanges(Map<String, Double> originalNutrients, 
+            Map<String, Double> newNutrients, double originalQuantity,
+            Map<String, Double> nutrientChanges, Map<String, Double> nutrientPercentChanges) {
+        
+        Set<String> allNutrientKeys = new HashSet<>(originalNutrients.keySet());
+        allNutrientKeys.addAll(newNutrients.keySet());
+
+        for (String nutrient : allNutrientKeys) {
+            // Values must be scaled by the quantity of the ingredient in the meal
+            double originalValTotal = originalNutrients.getOrDefault(nutrient, 0.0) * (originalQuantity / 100.0);
+            double newValTotal = newNutrients.getOrDefault(nutrient, 0.0) * (originalQuantity / 100.0);
+
+            nutrientChanges.put(nutrient, newValTotal - originalValTotal);
+
+            if (originalValTotal != 0) {
+                nutrientPercentChanges.put(nutrient, (newValTotal - originalValTotal) / originalValTotal);
+            } else {
+                nutrientPercentChanges.put(nutrient, newValTotal > 0 ? 1.0 : 0.0);
+            }
+        }
+    }
+
+    /**
+     * Filters and sorts suggestions to return the top results.
+     * Extracted method to improve clarity.
+     */
+    private List<SwapSuggestion> filterSuggestions(List<SwapSuggestion> scoredSuggestions) {
         return scoredSuggestions.stream()
                 .sorted(Comparator.comparingDouble(SwapSuggestion::getFinalScore))
                 .limit(20)
@@ -177,17 +200,6 @@ public class SwapEngine {
 
     /**
      * Calculates scoring metrics for a potential food swap.
-     * <p>
-     * This method evaluates how well a potential swap achieves the user's goals
-     * while maintaining nutritional stability. It returns both the total error
-     * score and stability penalty to enable flexible filtering of results.
-     * </p>
-     * 
-     * @param originalNutrients nutritional profile of the original ingredient
-     * @param newNutrients nutritional profile of the potential replacement
-     * @param goals list of nutritional goals to optimize for
-     * @param tolerance maximum percentage deviation allowed for non-target nutrients
-     * @return array containing [finalScore, stabilityPenalty] where lower scores are better
      */
     private double[] calculateSwapScores(Map<String, Double> originalNutrients, Map<String, Double> newNutrients, List<Goal> goals, double tolerance) {
         double totalGoalError = 0;
@@ -225,16 +237,6 @@ public class SwapEngine {
 
     /**
      * Creates a new meal with a specified ingredient swap applied.
-     * <p>
-     * This method generates a new Meal object by replacing the specified ingredient
-     * with the new item while maintaining the same quantity. The nutritional values
-     * are recalculated for the entire meal with the swap applied.
-     * </p>
-     * 
-     * @param originalMeal the original meal to modify
-     * @param itemToSwap the ingredient to replace (format: "100g chicken breast")
-     * @param newItem the replacement ingredient description (just the name, quantity is preserved)
-     * @return a new Meal object with the swap applied and updated nutritional values
      */
     public Meal performSwap(Meal originalMeal, String itemToSwap, String newItem) {
         Meal swappedMeal = new Meal();
@@ -256,13 +258,6 @@ public class SwapEngine {
 
     /**
      * Extracts the calorie value from a nutritional profile map.
-     * <p>
-     * This helper method searches for the calorie entry in the nutritional data,
-     * handling potential variations in the calorie field naming.
-     * </p>
-     * 
-     * @param nutrients map of nutritional values
-     * @return the calorie value, or 0.0 if not found
      */
     private double getCalorieValue(Map<String, Double> nutrients) {
         for (Map.Entry<String, Double> entry : nutrients.entrySet()) {

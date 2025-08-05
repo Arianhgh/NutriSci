@@ -8,6 +8,9 @@ import org.jfree.data.category.DefaultCategoryDataset;
 import org.jfree.data.general.DefaultPieDataset;
 
 import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.Period;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -21,13 +24,98 @@ public class VisualizationController {
     private final UserProfile userProfile;
     private final Pattern ingredientPattern = Pattern.compile("(\\d+\\.?\\d*)\\s*g\\s*(.+)", Pattern.CASE_INSENSITIVE);
 
-
-    // RDA values mimicking the RDAService, using official DB names.
-    private static final Map<String, Double> RDA_VALUES = new LinkedHashMap<>();
+    // Replace conditional with Map for food group normalization
+    private static final Map<String, String> FOOD_GROUP_MAPPING = new HashMap<>();
     static {
-        RDA_VALUES.put("ENERGY (KILOCALORIES)", 2000.0);
-        RDA_VALUES.put("PROTEIN", 50.0);
-        RDA_VALUES.put("FIBRE, TOTAL DIETARY", 30.0);
+        FOOD_GROUP_MAPPING.put("vegetable", "Vegetables and Fruit");
+        FOOD_GROUP_MAPPING.put("fruit", "Vegetables and Fruit");
+        FOOD_GROUP_MAPPING.put("grain", "Grain Products");
+        FOOD_GROUP_MAPPING.put("cereal", "Grain Products");
+        FOOD_GROUP_MAPPING.put("baked", "Grain Products");
+        FOOD_GROUP_MAPPING.put("dairy", "Milk and Alternatives");
+        FOOD_GROUP_MAPPING.put("milk", "Milk and Alternatives");
+        FOOD_GROUP_MAPPING.put("meat", "Meat and Alternatives");
+        FOOD_GROUP_MAPPING.put("poultry", "Meat and Alternatives");
+        FOOD_GROUP_MAPPING.put("legumes", "Meat and Alternatives");
+        FOOD_GROUP_MAPPING.put("nut", "Meat and Alternatives");
+        FOOD_GROUP_MAPPING.put("pork", "Meat and Alternatives");
+        FOOD_GROUP_MAPPING.put("beef", "Meat and Alternatives");
+        FOOD_GROUP_MAPPING.put("finfish", "Meat and Alternatives");
+        FOOD_GROUP_MAPPING.put("shellfish", "Meat and Alternatives");
+        FOOD_GROUP_MAPPING.put("sausage", "Meat and Alternatives");
+    }
+
+    private static final Map<String, Map<String, Map<String, Double>>> RDA_VALUES = new HashMap<>();
+
+    static {
+        // Initialize RDA values based on the provided table
+        // Males
+        Map<String, Map<String, Double>> maleValues = new HashMap<>();
+        maleValues.put("9-13", new HashMap<>() {{
+            put("Carbohydrate (Digestible)", 130.0);
+            put("Total Protein", 34.0);
+            put("Total Fibre", 31.0);
+        }});
+        maleValues.put("14-18", new HashMap<>() {{
+            put("Carbohydrate (Digestible)", 130.0);
+            put("Total Protein", 52.0);
+            put("Total Fibre", 38.0);
+        }});
+        maleValues.put("19-30", new HashMap<>() {{
+            put("Carbohydrate (Digestible)", 130.0);
+            put("Total Protein", 56.0);
+            put("Total Fibre", 38.0);
+        }});
+        maleValues.put("31-50", new HashMap<>() {{
+            put("Carbohydrate (Digestible)", 130.0);
+            put("Total Protein", 56.0);
+            put("Total Fibre", 38.0);
+        }});
+        maleValues.put("51-70", new HashMap<>() {{
+            put("Carbohydrate (Digestible)", 130.0);
+            put("Total Protein", 56.0);
+            put("Total Fibre", 30.0);
+        }});
+        maleValues.put(">70", new HashMap<>() {{
+            put("Carbohydrate (Digestible)", 130.0);
+            put("Total Protein", 56.0);
+            put("Total Fibre", 30.0);
+        }});
+        RDA_VALUES.put("Male", maleValues);
+
+        // Females
+        Map<String, Map<String, Double>> femaleValues = new HashMap<>();
+        femaleValues.put("9-13", new HashMap<>() {{
+            put("Carbohydrate (Digestible)", 130.0);
+            put("Total Protein", 34.0);
+            put("Total Fibre", 26.0);
+        }});
+        femaleValues.put("14-18", new HashMap<>() {{
+            put("Carbohydrate (Digestible)", 130.0);
+            put("Total Protein", 46.0);
+            put("Total Fibre", 26.0);
+        }});
+        femaleValues.put("19-30", new HashMap<>() {{
+            put("Carbohydrate (Digestible)", 130.0);
+            put("Total Protein", 46.0);
+            put("Total Fibre", 25.0);
+        }});
+        femaleValues.put("31-50", new HashMap<>() {{
+            put("Carbohydrate (Digestible)", 130.0);
+            put("Total Protein", 46.0);
+            put("Total Fibre", 25.0);
+        }});
+        femaleValues.put("51-70", new HashMap<>() {{
+            put("Carbohydrate (Digestible)", 130.0);
+            put("Total Protein", 46.0);
+            put("Total Fibre", 21.0);
+        }});
+        femaleValues.put(">70", new HashMap<>() {{
+            put("Carbohydrate (Digestible)", 130.0);
+            put("Total Protein", 46.0);
+            put("Total Fibre", 21.0);
+        }});
+        RDA_VALUES.put("Female", femaleValues);
     }
 
     /**
@@ -104,32 +192,90 @@ public class VisualizationController {
     }
 
     public String getRdaComparisonMessage(Date startDate, Date endDate) {
-        Map<String, Double> avgDailyNutrients = getAverageDailyNutrients(startDate, endDate);
-        if (avgDailyNutrients.isEmpty()) return "No data available for the selected period.";
+        long diffInMillis = Math.abs(getEndOfDay(endDate).getTime() - getStartOfDay(startDate).getTime());
+        long days = TimeUnit.MILLISECONDS.toDays(diffInMillis) + 1;
 
-        StringBuilder message = new StringBuilder("<html><b>Recommended Daily Allowance (RDA) Comparison:</b><br>");
-        for (Map.Entry<String, Double> rda : RDA_VALUES.entrySet()) {
-            String rdaNutrientName = rda.getKey();
-            double recommended = rda.getValue();
+        Map<String, Double> totalConsumedNutrients = getTotalNutrientsInPeriod(startDate, endDate);
+        if (totalConsumedNutrients.isEmpty()) return "No data available for the selected period.";
 
-            // Find the actual consumed value by matching the start of the string
-            double actual = 0.0;
-            for (Map.Entry<String, Double> avgEntry : avgDailyNutrients.entrySet()) {
-                if (avgEntry.getKey().startsWith(rdaNutrientName)) {
-                    actual = avgEntry.getValue();
-                    break;
-                }
-            }
+        Map<String, Double> rdaForUser = getRdaForUser();
 
-            double percentage = (recommended > 0) ? (actual / recommended) * 100 : 0;
-            String displayName = rdaNutrientName.equals("ENERGY (KILOCALORIES)") ? "Calories" :
-                    rdaNutrientName.equals("FIBRE, TOTAL DIETARY") ? "Fiber" : "Protein";
-
-            message.append(String.format("- %s: You consumed %.1f%% of the recommended amount.<br>", displayName, percentage));
+        String periodString = "for the selected period of " + days + " day(s)";
+        if (days == 1) {
+            periodString = "for the selected day";
         }
+
+        StringBuilder message = new StringBuilder("<html><b>Recommended Daily Allowance (RDA) Comparison " + periodString + ":</b><br>");
+
+        // A map to link RDA names to DB names and display names, ensuring correct order.
+        Map<String, String[]> nutrientMapping = new LinkedHashMap<>();
+        nutrientMapping.put("Total Protein", new String[]{"PROTEIN", "Protein"});
+        nutrientMapping.put("Carbohydrate (Digestible)", new String[]{"CARBOHYDRATE", "Carbohydrate"});
+        nutrientMapping.put("Total Fibre", new String[]{"FIBRE", "Fibre"});
+
+
+        for (Map.Entry<String, String[]> mappingEntry : nutrientMapping.entrySet()) {
+            String rdaKey = mappingEntry.getKey();
+            String dbSearchKey = mappingEntry.getValue()[0];
+            String displayName = mappingEntry.getValue()[1];
+
+            if (rdaForUser.containsKey(rdaKey)) {
+                double dailyRecommended = rdaForUser.get(rdaKey);
+                double totalRecommended = dailyRecommended * days;
+                double actualTotal = 0.0;
+
+                // Find the actual consumed value from the total map
+                for (Map.Entry<String, Double> consumedEntry : totalConsumedNutrients.entrySet()) {
+                    if (consumedEntry.getKey().toUpperCase().startsWith(dbSearchKey)) {
+                        actualTotal = consumedEntry.getValue();
+                        break;
+                    }
+                }
+
+                double percentage = (totalRecommended > 0) ? (actualTotal / totalRecommended) * 100 : 0;
+
+                message.append(String.format("- %s: You consumed %.1f%% of the recommended amount.<br>", displayName, percentage));
+            }
+        }
+
         message.append("</html>");
         return message.toString();
     }
+
+    private Map<String, Double> getTotalNutrientsInPeriod(Date startDate, Date endDate) {
+        List<Meal> meals = dbManager.getMealsForUser(userProfile.getId(), getStartOfDay(startDate), getEndOfDay(endDate));
+        if (meals.isEmpty()) {
+            return new HashMap<>();
+        }
+
+        Map<String, Double> totalNutrients = new HashMap<>();
+        for (Meal meal : meals) {
+            Map<String, Double> mealNutrients = nutrientCalculator.calculateNutrientsForMeal(meal.getIngredients());
+            mealNutrients.forEach((key, value) -> totalNutrients.merge(key, value, Double::sum));
+        }
+        return totalNutrients;
+    }
+
+
+    private Map<String, Double> getRdaForUser() {
+        LocalDate birthDate = new java.sql.Date(userProfile.getDateOfBirth().getTime()).toLocalDate();
+        int age = Period.between(birthDate, LocalDate.now()).getYears();
+        String sex = userProfile.getSex();
+        String ageRange = getAgeRange(age);
+
+        return RDA_VALUES.getOrDefault(sex, new HashMap<>()).getOrDefault(ageRange, new HashMap<>());
+    }
+
+    private String getAgeRange(int age) {
+        if (age >= 9 && age <= 13) return "9-13";
+        if (age >= 14 && age <= 18) return "14-18";
+        if (age >= 19 && age <= 30) return "19-30";
+        if (age >= 31 && age <= 50) return "31-50";
+        if (age >= 51 && age <= 70) return "51-70";
+        if (age > 70) return ">70";
+        return ""; // Default case
+    }
+
 
     /**
      * Helper method to find a nutrient value from a map using a partial, case-insensitive name.
@@ -221,54 +367,18 @@ public class VisualizationController {
 
     /**
      * Analyzes meal data over a period to determine the user's food group distribution.
-     * @param startDate The start of the analysis period.
-     * @param endDate The end of the analysis period.
-     * @return A DefaultPieDataset showing the percentage of intake from each food group.
+     * Updated to use the new dbManager method that handles the logic.
      */
     public DefaultPieDataset createCfgComparisonDataset(Date startDate, Date endDate) {
         System.out.println("\n[DEBUG] VisController: --- Creating CFG Comparison Dataset ---");
-        List<Meal> meals = dbManager.getMealsForUser(userProfile.getId(), getStartOfDay(startDate), getEndOfDay(endDate));
-        if (meals.isEmpty()) {
-            System.out.println("[DEBUG] VisController: No active meals found for CFG analysis.");
-            return new DefaultPieDataset();
-        }
-
-
-        Map<String, Double> foodGroupWeights = new HashMap<>();
-        for (Meal meal : meals) {
-            String[] ingredients = meal.getIngredients().split("\n");
-            for (String ingredient : ingredients) {
-                if (!ingredient.trim().isEmpty()) {
-                    // Use regex to parse the weight from the ingredient string.
-                    Matcher matcher = ingredientPattern.matcher(ingredient.trim());
-                    double weight = 0.0;
-                    if (matcher.matches()) {
-                        try {
-                            weight = Double.parseDouble(matcher.group(1));
-                        } catch (NumberFormatException e) {
-                            System.err.println("Could not parse weight from: " + ingredient);
-                        }
-                    }
-
-                    String foodGroup = dbManager.getFoodGroup(ingredient.trim());
-                    if (foodGroup != null) {
-                        System.out.println("[DEBUG] Ingredient: '" + ingredient.trim() + "' -> DB Food Group: '" + foodGroup + "'");
-                        foodGroup = normalizeFoodGroup(foodGroup);
-                        System.out.println("    -> Normalized Group: '" + foodGroup + "' with weight: " + weight);
-
-                        foodGroupWeights.merge(foodGroup, weight, Double::sum);
-                    } else {
-                        System.out.println("[DEBUG] Ingredient: '" + ingredient.trim() + "' -> DB Food Group: NOT FOUND");
-
-                        foodGroupWeights.merge("Uncategorized", weight, Double::sum);
-                    }
-                }
-            }
-        }
+        
+        // Use the new method from dbManager that handles the complex logic
+        Map<String, Double> foodGroupWeights = dbManager.getFoodGroupDistribution(userProfile.getId(), 
+                getStartOfDay(startDate), getEndOfDay(endDate));
+        
         System.out.println("[DEBUG] VisController: Final Food Group Weights: " + foodGroupWeights);
 
         DefaultPieDataset dataset = new DefaultPieDataset();
-
         foodGroupWeights.forEach((group, totalWeight) -> {
             if (totalWeight > 0) {
                 dataset.setValue(group, totalWeight);
@@ -282,22 +392,18 @@ public class VisualizationController {
     /**
      * Normalizes different food group names from the database into the main categories
      * used by Canada's Food Guide.
-     * @param dbFoodGroup The food group name from the database.
-     * @return The normalized food group name.
+     * Refactored to use Map instead of complex conditional logic.
      */
     private String normalizeFoodGroup(String dbFoodGroup) {
         String lowerCaseGroup = dbFoodGroup.toLowerCase();
-        if (lowerCaseGroup.contains("vegetable") || lowerCaseGroup.contains("fruit")) {
-            return "Vegetables and Fruit";
-        } else if (lowerCaseGroup.contains("grain") || lowerCaseGroup.contains("cereal") || lowerCaseGroup.contains("baked")) {
-            return "Grain Products";
-        } else if (lowerCaseGroup.contains("dairy") || lowerCaseGroup.contains("milk")) {
-            return "Milk and Alternatives";
-        } else if (lowerCaseGroup.contains("meat") || lowerCaseGroup.contains("poultry") || lowerCaseGroup.contains("legumes") ||
-                lowerCaseGroup.contains("nut") || lowerCaseGroup.contains("pork") || lowerCaseGroup.contains("beef") ||
-                lowerCaseGroup.contains("finfish") || lowerCaseGroup.contains("shellfish") || lowerCaseGroup.contains("sausage")) {
-            return "Meat and Alternatives";
+        
+        // Use the map to find the appropriate category
+        for (Map.Entry<String, String> entry : FOOD_GROUP_MAPPING.entrySet()) {
+            if (lowerCaseGroup.contains(entry.getKey())) {
+                return entry.getValue();
+            }
         }
+        
         return "Other";
     }
 

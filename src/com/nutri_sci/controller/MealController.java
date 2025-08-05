@@ -18,34 +18,7 @@ import java.util.regex.Pattern;
 
 /**
  * Controller for managing meal-related business logic and operations.
- * <p>
- * The MealController serves as the intermediary between the user interface and
- * the data layer for all meal-related operations. It handles meal validation,
- * ingredient resolution, nutritional calculations, and database persistence
- * while maintaining separation of concerns in the application architecture.
- * </p>
- * <p>
- * Key responsibilities include:
- * <ul>
- *   <li>Validating and processing meal data before persistence</li>
- *   <li>Resolving ambiguous ingredient names through user interaction</li>
- *   <li>Calculating nutritional values for complete meals</li>
- *   <li>Managing meal data persistence and retrieval</li>
- *   <li>Notifying observers of meal data changes</li>
- * </ul>
- * </p>
- * <p>
- * The controller uses dependency injection for better testability and follows
- * the Model-View-Controller pattern to maintain clean separation between
- * business logic and presentation concerns.
- * </p>
- * 
- * @author Juliett
- * @version 1.0
- * @since 1.0
- * @see com.nutri_sci.model.Meal
- * @see com.nutri_sci.database.DBManager
- * @see com.nutri_sci.service.NutrientCalculator
+ * Refactored to use Meal factory method for better separation of concerns.
  */
 public class MealController {
     
@@ -58,17 +31,6 @@ public class MealController {
     /** Regular expression pattern for parsing ingredient quantities and descriptions */
     private final Pattern ingredientPattern = Pattern.compile("(\\d+\\.?\\d*)\\s*g\\s*(.+)", Pattern.CASE_INSENSITIVE);
 
-    /**
-     * Constructs a new MealController with the specified dependencies.
-     * <p>
-     * This constructor accepts dependencies rather than creating them internally,
-     * following the dependency injection pattern for better testability and
-     * flexibility in different application contexts.
-     * </p>
-     * 
-     * @param dbManager the database manager for data persistence operations
-     * @param nutrientCalculator the service for calculating meal nutritional values
-     */
     public MealController(DBManager dbManager, NutrientCalculator nutrientCalculator) {
         this.dbManager = dbManager;
         this.nutrientCalculator = nutrientCalculator;
@@ -76,29 +38,7 @@ public class MealController {
 
     /**
      * Validates and logs a meal with interactive ingredient resolution.
-     * <p>
-     * This method performs comprehensive meal validation and logging with the following steps:
-     * <ol>
-     *   <li>Validates required fields (meal type and ingredients)</li>
-     *   <li>Parses individual ingredient lines</li>
-     *   <li>Resolves ambiguous ingredients through user dialogs</li>
-     *   <li>Calculates nutritional values for the complete meal</li>
-     *   <li>Persists the meal to the database</li>
-     *   <li>Notifies observers of the data change</li>
-     * </ol>
-     * </p>
-     * <p>
-     * If any ingredients cannot be found in the database or are ambiguous,
-     * the method presents resolution dialogs to the user to clarify their
-     * intent before proceeding with the logging operation.
-     * </p>
-     * 
-     * @param user the user profile associated with this meal
-     * @param date the date when the meal was consumed
-     * @param mealType the type of meal (e.g., "Breakfast", "Lunch", "Dinner", "Snack")
-     * @param rawIngredients the ingredient list in format "100g chicken breast\n200g rice"
-     * @param owner the parent window for displaying dialog boxes
-     * @return true if the meal was successfully logged, false if validation failed or user cancelled
+     * Refactored to use Meal.createNewMeal() factory method for better encapsulation.
      */
     public boolean logMeal(UserProfile user, Date date, String mealType, String rawIngredients, JFrame owner) {
         if (mealType == null || rawIngredients.trim().isEmpty()) {
@@ -118,16 +58,8 @@ public class MealController {
                 return false; // User cancelled or an error occurred
             }
 
-            Meal meal = new Meal();
-            meal.setDate(date);
-            meal.setMealType(mealType);
-            meal.setIngredients(verifiedIngredients);
-
-            Map<String, Double> nutrients = nutrientCalculator.calculateNutrientsForMeal(verifiedIngredients);
-
-            // **FIX**: Use the new helper method to find the correct calorie value
-            meal.setEstimatedCalories(getCalorieValue(nutrients));
-            meal.setNutrientBreakdown(nutrients);
+            // Use the factory method from Meal class for better encapsulation
+            Meal meal = Meal.createNewMeal(date, mealType, verifiedIngredients, nutrientCalculator);
 
             if (dbManager.saveMeal(user.getId(), meal)) {
                 JOptionPane.showMessageDialog(owner, "Meal logged successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
@@ -145,23 +77,6 @@ public class MealController {
     }
 
     /**
-     * **NEW**: Helper method to find the calorie value from the comprehensive nutrient map.
-     * This makes the retrieval logic robust against changes in nutrient naming.
-     *
-     * @param nutrients The map of all nutrients calculated for a meal.
-     * @return The total kilocalories for the meal.
-     */
-    private double getCalorieValue(Map<String, Double> nutrients) {
-        for (Map.Entry<String, Double> entry : nutrients.entrySet()) {
-            // Check for the official name for calories from the database.
-            if (entry.getKey().toUpperCase().startsWith("ENERGY (KILOCALORIES)")) {
-                return entry.getValue();
-            }
-        }
-        return 0.0;
-    }
-
-    /**
      * Iterates through raw ingredient lines, finds suggestions, and prompts the user for clarification.
      *
      * @param rawIngredients The raw text from the ingredients text area.
@@ -172,7 +87,6 @@ public class MealController {
     private String resolveIngredients(String rawIngredients, JFrame owner) throws Exception {
         String[] lines = rawIngredients.split("\\n");
         StringBuilder verifiedIngredientsBuilder = new StringBuilder();
-
 
         JFrame parentFrame = (owner instanceof JFrame) ? (JFrame) owner : null;
 
@@ -187,7 +101,7 @@ public class MealController {
             String quantityStr = matcher.group(1);
             String description = matcher.group(2).trim();
 
-            List<FoodItem> suggestions = dbManager.findFoodSuggestions(description, 10);
+            List<FoodItem> suggestions = dbManager.findFoodSuggestions(description, 20);
 
             if (suggestions.isEmpty()) {
                 throw new Exception("No database match found for: '" + description + "'.");

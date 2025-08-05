@@ -1,23 +1,13 @@
 package com.nutri_sci.model;
 
+import com.nutri_sci.service.NutrientCalculator;
+
 import java.util.Date;
 import java.util.Map;
 
 /**
  * Represents a logged meal with its nutritional information and metadata.
- * <p>
- * This class stores information about a meal including its ingredients,
- * calculated nutritional values, and tracking information for meal swaps.
- * Each meal belongs to a specific date and meal type (breakfast, lunch, dinner, snack).
- * </p>
- * <p>
- * The class supports meal swap tracking, allowing the system to maintain
- * relationships between original meals and their healthier alternatives.
- * </p>
- * 
- * @author Juliett
- * @version 1.0
- * @since 1.0
+ * Enhanced with factory method for better encapsulation of meal creation logic.
  */
 public class Meal {
     
@@ -44,6 +34,48 @@ public class Meal {
     
     /** Reference to the original meal ID if this is a swapped version */
     private Integer originalMealId = null;
+
+    /**
+     * Static factory method to create a new meal with calculated nutritional values.
+     * This method encapsulates the meal creation logic that was previously in MealController,
+     * improving cohesion by keeping meal-related operations in the Meal class.
+     * 
+     * @param date the date when the meal was consumed
+     * @param mealType the type of meal (e.g., "Breakfast", "Lunch", "Dinner", "Snack")
+     * @param verifiedIngredients the verified ingredient list
+     * @param nutrientCalculator the service for calculating nutritional values
+     * @return a new Meal object with calculated nutritional values
+     */
+    public static Meal createNewMeal(Date date, String mealType, String verifiedIngredients, 
+                                   NutrientCalculator nutrientCalculator) {
+        Meal meal = new Meal();
+        meal.setDate(date);
+        meal.setMealType(mealType);
+        meal.setIngredients(verifiedIngredients);
+
+        Map<String, Double> nutrients = nutrientCalculator.calculateNutrientsForMeal(verifiedIngredients);
+        meal.setEstimatedCalories(extractCalorieValue(nutrients));
+        meal.setNutrientBreakdown(nutrients);
+
+        return meal;
+    }
+
+    /**
+     * Helper method to extract the calorie value from the comprehensive nutrient map.
+     * This makes the retrieval logic robust against changes in nutrient naming.
+     *
+     * @param nutrients The map of all nutrients calculated for a meal.
+     * @return The total kilocalories for the meal.
+     */
+    private static double extractCalorieValue(Map<String, Double> nutrients) {
+        for (Map.Entry<String, Double> entry : nutrients.entrySet()) {
+            // Check for the official name for calories from the database.
+            if (entry.getKey().toUpperCase().startsWith("ENERGY (KILOCALORIES)")) {
+                return entry.getValue();
+            }
+        }
+        return 0.0;
+    }
 
     /**
      * Gets the unique meal identifier.
