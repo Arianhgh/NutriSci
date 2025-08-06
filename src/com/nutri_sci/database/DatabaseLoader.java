@@ -11,30 +11,7 @@ import java.util.Arrays;
 
 /**
  * Utility class for setting up and populating the NutriSci nutrition database.
- * <p>
- * This class is responsible for the initial setup of the database infrastructure,
- * including creating all necessary tables and loading nutritional data from CSV
- * files. It's typically run once during application setup or when initializing
- * a fresh database instance.
- * </p>
- * <p>
- * The loader handles:
- * <ul>
- *   <li>Database and table creation</li>
- *   <li>CSV data parsing and import</li>
- *   <li>Data validation and error handling during import</li>
- *   <li>Setting up the complete nutrition database schema</li>
- * </ul>
- * </p>
- * <p>
- * <strong>Note:</strong> This is a standalone utility class with a main method
- * for command-line execution. It's not intended to be instantiated or used
- * as part of the regular application flow.
- * </p>
- * 
- * @author Juliett
- * @version 1.0
- * @since 1.0
+ * Refactored to use extracted methods for better maintainability and reduced complexity.
  */
 public class DatabaseLoader {
 
@@ -53,23 +30,14 @@ public class DatabaseLoader {
     /** File path to the directory containing CSV data files */
     private static final String CSV_FILE_PATH = "route to csv files";
 
+    /** Batch size for SQL insert operations */
+    private static final int BATCH_SIZE = 1000;
+
+    /** Regex pattern to handle commas inside quotes in CSV parsing */
+    private static final String CSV_SPLIT_REGEX = ",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)";
+
     /**
      * Main method for executing the database setup and data loading process.
-     * <p>
-     * This method performs the complete database initialization sequence:
-     * <ol>
-     *   <li>Establishes connection to MySQL server</li>
-     *   <li>Creates the nutrisci_db database if it doesn't exist</li>
-     *   <li>Creates all necessary tables for the nutrition data</li>
-     *   <li>Loads data from CSV files into the tables</li>
-     * </ol>
-     * </p>
-     * <p>
-     * The process includes comprehensive error handling and progress reporting
-     * to help diagnose any issues during database setup.
-     * </p>
-     * 
-     * @param args command line arguments (not currently used)
      */
     public static void main(String[] args) {
         try (Connection conn = DriverManager.getConnection(DB_URL, USER, PASS);
@@ -99,14 +67,6 @@ public class DatabaseLoader {
 
     /**
      * Creates all necessary database tables for the nutrition data.
-     * <p>
-     * This method sets up the complete database schema including tables for
-     * food groups, nutrient definitions, food items, and nutritional values.
-     * Tables are created with appropriate constraints, indexes, and relationships.
-     * </p>
-     * 
-     * @param stmt the SQL statement object for executing DDL commands
-     * @throws SQLException if table creation fails
      */
     private static void createTables(Statement stmt) throws SQLException {
         System.out.println("Creating tables...");
@@ -219,79 +179,222 @@ public class DatabaseLoader {
         System.out.println("Data loading complete.");
     }
 
+    /**
+     * Loads data from a CSV file into the specified database table.
+     * Refactored to use extracted methods for better maintainability.
+     * 
+     * @param stmt SQL statement for database operations
+     * @param fileName name of the CSV file to load
+     * @param tableName name of the target database table
+     * @param numColumns number of columns in the table
+     */
     private static void loadData(Statement stmt, String fileName, String tableName, int numColumns) {
         String csvFile = CSV_FILE_PATH + fileName;
-        String line = "";
-        String cvsSplitBy = ",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)"; // Regex to handle commas inside quotes
-        int batchSize = 1000;
-        int count = 0;
+        int recordCount = 0;
 
         System.out.println("Loading " + fileName + " into " + tableName + "...");
 
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(csvFile), "latin1"))) {
-            br.readLine(); // Skip header line
-
-            while ((line = br.readLine()) != null) {
-                // Skip empty or malformed lines
-                if (line.trim().isEmpty() || line.trim().equals(",")) {
-                    continue;
-                }
-
-                String[] data = line.split(cvsSplitBy, -1);
-
-                // Skip row if the primary key is empty
-                if (data[0].trim().isEmpty() || data[0].trim().equalsIgnoreCase("null")) {
-                    continue;
-                }
-
-                // Use INSERT IGNORE to skip duplicate primary key errors
-                StringBuilder sql = new StringBuilder("INSERT IGNORE INTO " + tableName + " VALUES (");
-
-                for (int i = 0; i < numColumns; i++) {
-                    // Check if data array has this index
-                    String value = (i < data.length) ? data[i].trim() : "";
-
-                    // Clean up quotes safely
-                    if (value.length() > 1 && value.startsWith("\"") && value.endsWith("\"")) {
-                        value = value.substring(1, value.length() - 1);
-                    }
-                    // Escape single quotes for SQL
-                    value = value.replace("'", "''");
-
-                    if (value.isEmpty() || value.equalsIgnoreCase("null")) {
-                        sql.append("NULL");
-                    } else if (isNumeric(value)) {
-                        sql.append(value);
-                    } else {
-                        sql.append("'").append(value).append("'");
-                    }
-
-                    if (i < numColumns - 1) {
-                        sql.append(", ");
-                    }
-                }
-                sql.append(")");
-
-                try {
-                    stmt.addBatch(sql.toString());
-                    count++;
-                    if (count % batchSize == 0) {
-                        stmt.executeBatch();
-                    }
-                } catch (SQLException e) {
-                    System.err.println("Batch execution error on SQL: " + sql.toString());
-                    e.printStackTrace();
-                }
-            }
-            stmt.executeBatch(); // Insert remaining records
-            System.out.println("Successfully loaded " + count + " records into " + tableName + ".");
+        try (BufferedReader br = createCsvReader(csvFile)) {
+            skipHeaderLine(br);
+            recordCount = processDataRows(stmt, br, tableName, numColumns);
+            System.out.println("Successfully loaded " + recordCount + " records into " + tableName + ".");
         } catch (Exception e) {
             System.err.println("An error occurred while loading " + fileName);
             e.printStackTrace();
         }
     }
 
-    // A simple check to see if a string is numeric
+    /**
+     * Creates a BufferedReader for reading CSV files with proper encoding.
+     * Extracted method to improve readability and handle encoding concerns.
+     */
+    private static BufferedReader createCsvReader(String csvFile) throws Exception {
+        return new BufferedReader(new InputStreamReader(new FileInputStream(csvFile), "latin1"));
+    }
+
+    /**
+     * Skips the header line in the CSV file.
+     * Extracted method to make the purpose explicit.
+     */
+    private static void skipHeaderLine(BufferedReader br) throws Exception {
+        br.readLine(); // Skip header line
+    }
+
+    /**
+     * Processes all data rows from the CSV file and inserts them into the database.
+     * Extracted method to separate data processing logic from file handling.
+     * 
+     * @param stmt SQL statement for database operations
+     * @param br BufferedReader for reading CSV data
+     * @param tableName name of the target database table
+     * @param numColumns number of columns in the table
+     * @return number of records successfully processed
+     */
+    private static int processDataRows(Statement stmt, BufferedReader br, String tableName, int numColumns) throws Exception {
+        String line;
+        int recordCount = 0;
+
+        while ((line = br.readLine()) != null) {
+            if (shouldSkipLine(line)) {
+                continue;
+            }
+
+            String[] data = parseCsvLine(line);
+            
+            if (shouldSkipRecord(data)) {
+                continue;
+            }
+
+            String sql = buildInsertStatement(tableName, data, numColumns);
+            if (executeBatchInsert(stmt, sql)) {
+                recordCount++;
+            }
+        }
+
+        // Execute any remaining batched statements
+        executeRemainingBatch(stmt);
+        return recordCount;
+    }
+
+    /**
+     * Determines if a line should be skipped (empty or malformed).
+     * Extracted method to make line validation logic explicit.
+     */
+    private static boolean shouldSkipLine(String line) {
+        return line.trim().isEmpty() || line.trim().equals(",");
+    }
+
+    /**
+     * Parses a CSV line into an array of values, handling commas within quotes.
+     * Extracted method to encapsulate CSV parsing logic.
+     */
+    private static String[] parseCsvLine(String line) {
+        return line.split(CSV_SPLIT_REGEX, -1);
+    }
+
+    /**
+     * Determines if a record should be skipped based on primary key validation.
+     * Extracted method to make record validation logic explicit.
+     */
+    private static boolean shouldSkipRecord(String[] data) {
+        return data.length == 0 || 
+               data[0].trim().isEmpty() || 
+               data[0].trim().equalsIgnoreCase("null");
+    }
+
+    /**
+     * Builds an INSERT statement for the given table and data.
+     * Extracted method to separate SQL generation from execution logic.
+     * 
+     * @param tableName name of the target table
+     * @param data array of data values
+     * @param numColumns number of columns to insert
+     * @return formatted INSERT SQL statement
+     */
+    private static String buildInsertStatement(String tableName, String[] data, int numColumns) {
+        StringBuilder sql = new StringBuilder("INSERT IGNORE INTO " + tableName + " VALUES (");
+
+        for (int i = 0; i < numColumns; i++) {
+            String value = getColumnValue(data, i);
+            sql.append(formatSqlValue(value));
+
+            if (i < numColumns - 1) {
+                sql.append(", ");
+            }
+        }
+        sql.append(")");
+
+        return sql.toString();
+    }
+
+    /**
+     * Gets the value for a specific column, handling cases where data array is shorter than expected.
+     * Extracted method to handle data array bounds checking.
+     */
+    private static String getColumnValue(String[] data, int columnIndex) {
+        String value = (columnIndex < data.length) ? data[columnIndex].trim() : "";
+        return cleanColumnValue(value);
+    }
+
+    /**
+     * Cleans a column value by removing surrounding quotes and escaping SQL characters.
+     * Extracted method to encapsulate data cleaning logic.
+     */
+    private static String cleanColumnValue(String value) {
+        // Clean up quotes safely
+        if (value.length() > 1 && value.startsWith("\"") && value.endsWith("\"")) {
+            value = value.substring(1, value.length() - 1);
+        }
+        // Escape single quotes for SQL
+        value = value.replace("'", "''");
+        return value;
+    }
+
+    /**
+     * Formats a value for SQL insertion, handling NULL values and numeric vs. string types.
+     * Extracted method to encapsulate SQL value formatting logic.
+     */
+    private static String formatSqlValue(String value) {
+        if (value.isEmpty() || value.equalsIgnoreCase("null")) {
+            return "NULL";
+        } else if (isNumeric(value)) {
+            return value;
+        } else {
+            return "'" + value + "'";
+        }
+    }
+
+    /**
+     * Executes a batch insert operation, managing batch size and error handling.
+     * Extracted method to separate batch execution logic.
+     * 
+     * @param stmt SQL statement for batch operations
+     * @param sql INSERT statement to add to batch
+     * @return true if the statement was successfully added to batch
+     */
+    private static boolean executeBatchInsert(Statement stmt, String sql) {
+        try {
+            stmt.addBatch(sql);
+            
+            // Execute batch when it reaches the defined size
+            if (getBatchCount(stmt) % BATCH_SIZE == 0) {
+                stmt.executeBatch();
+            }
+            return true;
+        } catch (SQLException e) {
+            System.err.println("Batch execution error on SQL: " + sql);
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    /**
+     * Simple counter to track batch operations.
+     * In a real implementation, this might use statement metadata or a separate counter.
+     */
+    private static int batchCounter = 0;
+    
+    private static int getBatchCount(Statement stmt) {
+        return ++batchCounter;
+    }
+
+    /**
+     * Executes any remaining statements in the batch.
+     * Extracted method to handle final batch execution.
+     */
+    private static void executeRemainingBatch(Statement stmt) {
+        try {
+            stmt.executeBatch();
+        } catch (SQLException e) {
+            System.err.println("Error executing remaining batch statements");
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Checks if a string represents a numeric value.
+     * Helper method for data type validation.
+     */
     private static boolean isNumeric(String str) {
         if (str == null) {
             return false;
